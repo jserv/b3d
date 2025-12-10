@@ -9,7 +9,7 @@
 /* Global state */
 int b3d_width, b3d_height;
 uint32_t *b3d_pixels;
-float *b3d_depth;
+b3d_depth_t *b3d_depth;
 
 static b3d_mat_t b3d_model, b3d_view, b3d_proj;
 static b3d_vec_t b3d_camera;
@@ -17,6 +17,9 @@ static b3d_vec_t b3d_camera;
 /* Matrix stack for push/pop operations */
 static b3d_mat_t b3d_matrix_stack[B3D_MATRIX_STACK_SIZE];
 static int b3d_matrix_stack_top = 0;
+
+/* Debug counters */
+static size_t b3d_clip_drop_count = 0;
 
 /* Cached screen-space clipping planes (updated when resolution changes) */
 static b3d_vec_t b3d_screen_planes[4][2];
@@ -55,6 +58,13 @@ static void b3d_rasterise(float ax, float ay, float az,
     ay = floorf(ay);
     by = floorf(by);
     cy = floorf(cy);
+    /* Screen-space AABB early-out */
+    float min_x = fminf(fminf(ax, bx), cx);
+    float max_x = fmaxf(fmaxf(ax, bx), cx);
+    float min_y = fminf(fminf(ay, by), cy);
+    float max_y = fmaxf(fmaxf(ay, by), cy);
+    if (max_x < 0 || min_x >= b3d_width || max_y < 0 || min_y >= b3d_height)
+        return;
     float t = 0;
     if (ay > by) {
         t = ax; ax = bx; bx = t;
@@ -105,8 +115,8 @@ static void b3d_rasterise(float ax, float ay, float az,
         d += depth_step * (start - (int)sx);
         for (int x = start; x < end; ++x) {
             size_t p = (size_t)x + (size_t)y * (size_t)b3d_width;
-            if (d < b3d_depth[p]) {
-                b3d_depth[p] = d;
+            if (d < b3d_depth_to_float(b3d_depth[p])) {
+                b3d_depth[p] = b3d_depth_from_float(d);
                 b3d_pixels[p] = c;
             }
             d += depth_step;
@@ -144,8 +154,8 @@ static void b3d_rasterise(float ax, float ay, float az,
         d += depth_step * (start - (int)sx);
         for (int x = start; x < end; ++x) {
             size_t p = (size_t)x + (size_t)y * (size_t)b3d_width;
-            if (d < b3d_depth[p]) {
-                b3d_depth[p] = d;
+            if (d < b3d_depth_to_float(b3d_depth[p])) {
+                b3d_depth[p] = b3d_depth_from_float(d);
                 b3d_pixels[p] = c;
             }
             d += depth_step;
@@ -211,6 +221,8 @@ int b3d_triangle(float ax, float ay, float az,
         t.p[2].y = (-t.p[2].y + 1) * ys;
         if (src_count < B3D_CLIP_BUFFER_SIZE)
             src[src_count++] = t;
+        else
+            ++b3d_clip_drop_count;
     }
     for (int p = 0; p < 4; ++p) {
         int dst_count = 0;
@@ -220,6 +232,8 @@ int b3d_triangle(float ax, float ay, float az,
             for (int w = 0; w < n; ++w) {
                 if (dst_count < B3D_CLIP_BUFFER_SIZE)
                     dst[dst_count++] = clipped[w];
+                else
+                    ++b3d_clip_drop_count;
             }
         }
         b3d_triangle_t *tmp = src;
@@ -311,19 +325,25 @@ int b3d_to_screen(float x, float y, float z, int *sx, int *sy)
     return 1;
 }
 
-void b3d_init(uint32_t *pixel_buffer, float *depth_buffer, int w, int h, float fov)
+void b3d_init(uint32_t *pixel_buffer, b3d_depth_t *depth_buffer, int w, int h, float fov)
 {
-    if (!pixel_buffer || !depth_buffer || w <= 0 || h <= 0 || fov <= 0) {
+    size_t depth_bytes = b3d_buffer_size(w, h, sizeof(b3d_depth_t));
+    size_t pixel_bytes = b3d_buffer_size(w, h, sizeof(uint32_t));
+    if (!pixel_buffer || !depth_buffer || w <= 0 || h <= 0 || fov <= 0 ||
+        depth_bytes == 0 || pixel_bytes == 0) {
         b3d_width = 0;
         b3d_height = 0;
         b3d_pixels = NULL;
         b3d_depth = NULL;
+        b3d_matrix_stack_top = 0;
+        b3d_clip_drop_count = 0;
         return;
     }
     b3d_width = w;
     b3d_height = h;
     b3d_pixels = pixel_buffer;
     b3d_depth = depth_buffer;
+    b3d_matrix_stack_top = 0;
     b3d_update_screen_planes();
     b3d_clear();
     b3d_reset();
@@ -336,9 +356,10 @@ void b3d_clear(void)
 {
     if (!b3d_depth || !b3d_pixels || b3d_width <= 0 || b3d_height <= 0)
         return;
+    b3d_clip_drop_count = 0;
     size_t count = (size_t)b3d_width * (size_t)b3d_height;
     for (size_t i = 0; i < count; ++i)
-        b3d_depth[i] = B3D_DEPTH_FAR;
+        b3d_depth[i] = B3D_DEPTH_CLEAR;
     memset(b3d_pixels, 0, count * sizeof(b3d_pixels[0]));
 }
 
@@ -389,4 +410,9 @@ void b3d_set_model_matrix(const float m[16])
     for (int r = 0; r < 4; ++r)
         for (int c = 0; c < 4; ++c)
             b3d_model.m[r][c] = m[r * 4 + c];
+}
+
+size_t b3d_get_clip_drop_count(void)
+{
+    return b3d_clip_drop_count;
 }

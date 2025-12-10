@@ -30,7 +30,7 @@ int main() {
     int width = 640;
     int height = 480;
     uint32_t * pixels = malloc(width * height * sizeof(pixels[0]));
-    float * depth = malloc(width * height * sizeof(depth[0]));
+    b3d_depth_t * depth = malloc(width * height * sizeof(depth[0]));
     b3d_init(pixels, depth, width, height, 70.0);
     b3d_set_camera(0, 0, -1.5, 0, 0, 0);
     b3d_rotate_x(1.5);

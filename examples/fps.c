@@ -28,7 +28,7 @@ int main(int argument_count, char ** arguments) {
     SDL_Texture * texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, width, height);
 
     uint32_t * pixels = malloc(width * height * sizeof(pixels[0]));
-    float * depth = malloc(width * height * sizeof(depth[0]));
+    b3d_depth_t * depth = malloc(width * height * sizeof(depth[0]));
     b3d_init(pixels, depth, width, height, 90);
 
     /* Load OBJ file */

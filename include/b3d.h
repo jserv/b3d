@@ -52,7 +52,16 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 /*
  * Optional compile-time configuration:
  *   BOOTLEG3D_NO_CULLING - Define to disable back-face culling
+ *   B3D_DEPTH_16BIT      - Define to use 16-bit depth buffer (saves memory, less precision)
  */
+
+/* Depth buffer element type (depends on compile-time option) */
+#ifdef B3D_DEPTH_16BIT
+typedef uint16_t b3d_depth_t;
+#else
+typedef float b3d_depth_t;
+#endif
+#define B3D_DEPTH_T_DEFINED
 
 /*
  * Angle Unit Convention:
@@ -70,7 +79,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
 /* Initialize the renderer with pixel/depth buffers and field of view (degrees) */
-void b3d_init(uint32_t *pixel_buffer, float *depth_buffer, int w, int h, float fov);
+void b3d_init(uint32_t *pixel_buffer, b3d_depth_t *depth_buffer, int w, int h, float fov);
 
 /* Clear pixel buffer to black and depth buffer to far plane */
 void b3d_clear(void);
@@ -153,11 +162,14 @@ int b3d_triangle(float ax, float ay, float az,
 /* Project world coordinate to screen coordinate. Returns 1 if in front of camera. */
 int b3d_to_screen(float x, float y, float z, int *sx, int *sy);
 
+/* Number of triangles dropped during clipping due to buffer limits (reset by b3d_clear). */
+size_t b3d_get_clip_drop_count(void);
+
 /*
  * Public globals (read-only recommended)
  */
 extern int b3d_width, b3d_height;
 extern uint32_t *b3d_pixels;
-extern float *b3d_depth;
+extern b3d_depth_t *b3d_depth;
 
 #endif /* B3D_H */

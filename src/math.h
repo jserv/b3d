@@ -7,6 +7,7 @@
 #define B3D_MATH_H
 
 #include <math.h>
+#include <stdint.h>
 
 /* Constants */
 #define B3D_NEAR_DISTANCE 0.1f
@@ -17,6 +18,42 @@
 #define B3D_DEPTH_FAR 1e30f         /* Depth buffer clear value (far plane) */
 #define B3D_PI 3.1415926536f        /* Pi constant for angle conversions */
 #define B3D_CLIP_BUFFER_SIZE 32     /* Maximum triangles in clipping buffer */
+
+/* Depth type (shared with public header) */
+#ifndef B3D_DEPTH_T_DEFINED
+#ifdef B3D_DEPTH_16BIT
+typedef uint16_t b3d_depth_t;
+#else
+typedef float b3d_depth_t;
+#endif
+#define B3D_DEPTH_T_DEFINED
+#endif
+
+#ifdef B3D_DEPTH_16BIT
+#define B3D_DEPTH_CLEAR 0xFFFF
+static inline b3d_depth_t b3d_depth_from_float(float d)
+{
+    if (d < 0.0f)
+        d = 0.0f;
+    if (d > 1.0f)
+        d = 1.0f;
+    return (b3d_depth_t)(d * 65535.0f + 0.5f);
+}
+static inline float b3d_depth_to_float(b3d_depth_t d)
+{
+    return (float)d * (1.0f / 65535.0f);
+}
+#else
+#define B3D_DEPTH_CLEAR B3D_DEPTH_FAR
+static inline b3d_depth_t b3d_depth_from_float(float d)
+{
+    return d;
+}
+static inline float b3d_depth_to_float(b3d_depth_t d)
+{
+    return d;
+}
+#endif
 
 /* Internal types */
 typedef struct {
