@@ -84,7 +84,7 @@ int main(int argument_count, char **arguments) {
     float min_y, max_y, max_xz;
     b3d_mesh_bounds(&mesh, &min_y, &max_y, &max_xz);
 
-    /* Centre the model along the y axis */
+    /* Center the model along the y axis */
     float y_offset = (min_y + max_y) / 2;
 
     /* Move backwards based on how tall and wide the model is */

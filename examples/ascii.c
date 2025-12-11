@@ -25,7 +25,7 @@ static void render_frame(uint32_t *pixels, b3d_depth_t *depth, int w, int h, flo
     b3d_rotate_x(t * 0.5f);
     b3d_rotate_z(t * 0.3f);
 
-    /* Colourful cube faces for contrast */
+    /* Colorful cube faces for contrast */
     b3d_triangle(-0.5,-0.5,-0.5, -0.5, 0.5,-0.5,  0.5, 0.5,-0.5, 0xfcd0a1);
     b3d_triangle(-0.5,-0.5,-0.5,  0.5, 0.5,-0.5,  0.5,-0.5,-0.5, 0xb1b695);
     b3d_triangle( 0.5,-0.5,-0.5,  0.5, 0.5,-0.5,  0.5, 0.5, 0.5, 0x53917e);

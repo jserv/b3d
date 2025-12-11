@@ -77,7 +77,7 @@ static void b3d_update_screen_planes(void)
     } while (0)
 
 /* Internal rasterization function */
-static void b3d_rasterise(float ax, float ay, float az,
+static void b3d_rasterize(float ax, float ay, float az,
                           float bx, float by, float bz,
                           float cx, float cy, float cz,
                           uint32_t c)
@@ -319,7 +319,7 @@ int b3d_triangle(float ax, float ay, float az,
         src_count = dst_count;
     }
     for (int i = 0; i < src_count; ++i) {
-        b3d_rasterise(
+        b3d_rasterize(
             src[i].p[0].x, src[i].p[0].y, src[i].p[0].z,
             src[i].p[1].x, src[i].p[1].y, src[i].p[1].z,
             src[i].p[2].x, src[i].p[2].y, src[i].p[2].z,
