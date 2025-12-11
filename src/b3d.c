@@ -66,6 +66,16 @@ static void b3d_update_screen_planes(void)
     b3d_planes_cached_h = b3d_height;
 }
 
+/* Pixel write macro for scanline unrolling */
+#define PUT_PIXEL(i)                                 \
+    do {                                             \
+        if (d < b3d_depth_to_float(dp[i])) {         \
+            dp[i] = b3d_depth_from_float(d);         \
+            pp[i] = c;                               \
+        }                                            \
+        d += depth_step;                             \
+    } while (0)
+
 /* Internal rasterization function */
 static void b3d_rasterise(float ax, float ay, float az,
                           float bx, float by, float bz,
@@ -132,14 +142,33 @@ static void b3d_rasterise(float ax, float ay, float az,
         float d = sz;
         int start = (int)sx < 0 ? 0 : (int)sx;
         int end = (int)ex > b3d_width ? b3d_width : (int)ex;
-        d += depth_step * (start - (int)sx);
-        for (int x = start; x < end; ++x) {
-            size_t p = (size_t)x + (size_t)y * (size_t)b3d_width;
-            if (d < b3d_depth_to_float(b3d_depth[p])) {
-                b3d_depth[p] = b3d_depth_from_float(d);
-                b3d_pixels[p] = c;
-            }
-            d += depth_step;
+        /* Clamp start to buffer width and use float delta for depth offset */
+        if (start > b3d_width)
+            start = b3d_width;
+        if (start >= end) {
+            alpha += alpha_step;
+            beta += beta_step;
+            continue;
+        }
+        d += depth_step * ((float)start - sx);
+        /* Scanline unrolling: pre-compute row base, use pointer arithmetic */
+        size_t row_base = (size_t)y * (size_t)b3d_width;
+        b3d_depth_t *dp = b3d_depth + row_base + start;
+        uint32_t *pp = b3d_pixels + row_base + start;
+        int n = end - start;
+        /* Unrolled loop: process 4 pixels at a time */
+        while (n >= 4) {
+            PUT_PIXEL(0);
+            PUT_PIXEL(1);
+            PUT_PIXEL(2);
+            PUT_PIXEL(3);
+            dp += 4, pp += 4;
+            n -= 4;
+        }
+        /* Remainder loop: process remaining pixels */
+        while (n-- > 0) {
+            PUT_PIXEL(0);
+            dp++, pp++;
         }
         alpha += alpha_step;
         beta += beta_step;
@@ -171,19 +200,40 @@ static void b3d_rasterise(float ax, float ay, float az,
         float d = sz;
         int start = (int)sx < 0 ? 0 : (int)sx;
         int end = (int)ex > b3d_width ? b3d_width : (int)ex;
-        d += depth_step * (start - (int)sx);
-        for (int x = start; x < end; ++x) {
-            size_t p = (size_t)x + (size_t)y * (size_t)b3d_width;
-            if (d < b3d_depth_to_float(b3d_depth[p])) {
-                b3d_depth[p] = b3d_depth_from_float(d);
-                b3d_pixels[p] = c;
-            }
-            d += depth_step;
+        /* Clamp start to buffer width and use float delta for depth offset */
+        if (start > b3d_width)
+            start = b3d_width;
+        if (start >= end) {
+            alpha += alpha_step;
+            beta += beta_step;
+            continue;
+        }
+        d += depth_step * ((float)start - sx);
+        /* Scanline unrolling: pre-compute row base, use pointer arithmetic */
+        size_t row_base = (size_t)y * (size_t)b3d_width;
+        b3d_depth_t *dp = b3d_depth + row_base + start;
+        uint32_t *pp = b3d_pixels + row_base + start;
+        int n = end - start;
+        /* Unrolled loop: process 4 pixels at a time */
+        while (n >= 4) {
+            PUT_PIXEL(0);
+            PUT_PIXEL(1);
+            PUT_PIXEL(2);
+            PUT_PIXEL(3);
+            dp += 4, pp += 4;
+            n -= 4;
+        }
+        /* Remainder loop: process remaining pixels */
+        while (n-- > 0) {
+            PUT_PIXEL(0);
+            dp++, pp++;
         }
         alpha += alpha_step;
         beta += beta_step;
     }
 }
+
+#undef PUT_PIXEL
 
 /*
  * Public API
