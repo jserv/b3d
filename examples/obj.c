@@ -1,16 +1,17 @@
 /*
-    Loads a model from a '.obj' file and renders it using b3d.
-    You can pass the path to a file as the first argument, otherwise
-    it will load a file (moai.obj) provided in this examples folder.
-    Supports headless snapshots with --snapshot=PATH or B3D_SNAPSHOT.
+ * This program Loads a model from a '.obj' file and renders it using B3D.
+ * You can pass the path to a file as the first argument, otherwise it will load
+ * a file (moai.obj) provided in this examples directory. It supports headless
+ * snapshots with --snapshot=PATH or B3D_SNAPSHOT.
+ *
+ * Right now the '.obj' loading code will fail on models containing
+ * non-triangular faces.
+ */
 
-    Right now the '.obj' loading code will fail on models containing
-    non-triangular faces.
-*/
-
+#include <SDL.h>
 #include <stdlib.h>
 #include <string.h>
-#include "SDL.h"
+
 #include "b3d.h"
 #include "b3d_obj.h"
 #include "pngwrite.h"
@@ -18,39 +19,48 @@
 static const char *get_snapshot_path(int argc, char **argv)
 {
     const char *env = getenv("B3D_SNAPSHOT");
-    if (env && env[0]) return env;
+    if (env && env[0])
+        return env;
+
     for (int i = 1; i < argc; ++i) {
         const char *flag = "--snapshot=";
         size_t len = strlen(flag);
-        if (strncmp(argv[i], flag, len) == 0) {
-            return argv[i] + (int)len;
-        }
+        if (!strncmp(argv[i], flag, len))
+            return argv[i] + (int) len;
     }
     return NULL;
 }
 
-static void write_png(const char *path, const uint32_t *rgba, int width, int height)
+static void write_png(const char *path,
+                      const uint32_t *rgba,
+                      int width,
+                      int height)
 {
     FILE *file = fopen(path, "wb");
-    if (!file) return;
-    uint8_t *out = malloc((size_t)width * (size_t)height * 4);
-    if (!out) { fclose(file); return; }
+    if (!file)
+        return;
+
+    uint8_t *out = malloc((size_t) width * (size_t) height * 4);
+    if (!out) {
+        fclose(file);
+        return;
+    }
     size_t idx = 0;
     for (int i = 0; i < width * height; ++i) {
         uint32_t p = rgba[i];
-        out[idx++] = (uint8_t)((p >> 16) & 0xff);
-        out[idx++] = (uint8_t)((p >> 8) & 0xff);
-        out[idx++] = (uint8_t)(p & 0xff);
+        out[idx++] = (uint8_t) ((p >> 16) & 0xff);
+        out[idx++] = (uint8_t) ((p >> 8) & 0xff);
+        out[idx++] = (uint8_t) (p & 0xff);
         out[idx++] = 0xff;
     }
-    png_write(file, (unsigned)width, (unsigned)height, out, true);
+    png_write(file, (unsigned) width, (unsigned) height, out, true);
     free(out);
     fclose(file);
 }
 
-int main(int argument_count, char **arguments) {
-    int width = 800;
-    int height = 600;
+int main(int argument_count, char **arguments)
+{
+    int width = 800, height = 600;
     const char *snapshot = get_snapshot_path(argument_count, arguments);
 
     uint32_t *pixels = malloc(width * height * sizeof(pixels[0]));
@@ -78,7 +88,8 @@ int main(int argument_count, char **arguments) {
         exit(1);
     }
 
-    printf("Loaded %d triangles from file '%s'.\n", mesh.triangle_count, file_name);
+    printf("Loaded %d triangles from file '%s'.\n", mesh.triangle_count,
+           file_name);
 
     /* Calculate mesh bounds for camera positioning */
     float min_y, max_y, max_xz;
@@ -100,15 +111,16 @@ int main(int argument_count, char **arguments) {
         b3d_rotate_y(t * 0.3);
 
         for (int i = 0; i < mesh.vertex_count; i += 9) {
-            float avg_y = (mesh.triangles[i + 1] + mesh.triangles[i + 4] + mesh.triangles[i + 7]) / 3;
+            float avg_y = (mesh.triangles[i + 1] + mesh.triangles[i + 4] +
+                           mesh.triangles[i + 7]) /
+                          3;
             float brightness = (avg_y - min_y) / max_y;
-            uint32_t c = (50 + (int)(brightness * 200)) & 0xff;
-            b3d_triangle(
-                mesh.triangles[i + 0], mesh.triangles[i + 1], mesh.triangles[i + 2],
-                mesh.triangles[i + 3], mesh.triangles[i + 4], mesh.triangles[i + 5],
-                mesh.triangles[i + 6], mesh.triangles[i + 7], mesh.triangles[i + 8],
-                (c << 16 | c << 8 | c)
-            );
+            uint32_t c = (50 + (int) (brightness * 200)) & 0xff;
+            b3d_triangle(mesh.triangles[i + 0], mesh.triangles[i + 1],
+                         mesh.triangles[i + 2], mesh.triangles[i + 3],
+                         mesh.triangles[i + 4], mesh.triangles[i + 5],
+                         mesh.triangles[i + 6], mesh.triangles[i + 7],
+                         mesh.triangles[i + 8], (c << 16 | c << 8 | c));
         }
         write_png(snapshot, pixels, width, height);
         free(pixels);
@@ -118,9 +130,13 @@ int main(int argument_count, char **arguments) {
     }
 
     SDL_Init(SDL_INIT_VIDEO);
-    SDL_Window *window = SDL_CreateWindow("", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width, height, 0);
-    SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_PRESENTVSYNC);
-    SDL_Texture *texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, width, height);
+    SDL_Window *window = SDL_CreateWindow(
+        "", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width, height, 0);
+    SDL_Renderer *renderer =
+        SDL_CreateRenderer(window, -1, SDL_RENDERER_PRESENTVSYNC);
+    SDL_Texture *texture =
+        SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
+                          SDL_TEXTUREACCESS_STREAMING, width, height);
 
     int quit = 0;
     while (!quit) {
@@ -131,7 +147,8 @@ int main(int argument_count, char **arguments) {
                 break;
             }
         }
-        if (quit) break;
+        if (quit)
+            break;
 
         float t = SDL_GetTicks() * 0.001f;
         b3d_clear();
@@ -139,15 +156,16 @@ int main(int argument_count, char **arguments) {
         b3d_rotate_y(t * 0.3);
 
         for (int i = 0; i < mesh.vertex_count; i += 9) {
-            float avg_y = (mesh.triangles[i + 1] + mesh.triangles[i + 4] + mesh.triangles[i + 7]) / 3;
+            float avg_y = (mesh.triangles[i + 1] + mesh.triangles[i + 4] +
+                           mesh.triangles[i + 7]) /
+                          3;
             float brightness = (avg_y - min_y) / max_y;
-            uint32_t c = (50 + (int)(brightness * 200)) & 0xff;
-            b3d_triangle(
-                mesh.triangles[i + 0], mesh.triangles[i + 1], mesh.triangles[i + 2],
-                mesh.triangles[i + 3], mesh.triangles[i + 4], mesh.triangles[i + 5],
-                mesh.triangles[i + 6], mesh.triangles[i + 7], mesh.triangles[i + 8],
-                (c << 16 | c << 8 | c)
-            );
+            uint32_t c = (50 + (int) (brightness * 200)) & 0xff;
+            b3d_triangle(mesh.triangles[i + 0], mesh.triangles[i + 1],
+                         mesh.triangles[i + 2], mesh.triangles[i + 3],
+                         mesh.triangles[i + 4], mesh.triangles[i + 5],
+                         mesh.triangles[i + 6], mesh.triangles[i + 7],
+                         mesh.triangles[i + 8], (c << 16 | c << 8 | c));
         }
 
         SDL_Delay(1);

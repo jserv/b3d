@@ -30,7 +30,7 @@ LIB_SRC := $(SRC_DIR)/b3d.c
 LIB_OBJ := $(SRC_DIR)/b3d.o
 
 # Library dependencies
-LIB_DEPS := $(SRC_DIR)/math.h $(INCLUDE_DIR)/b3d.h
+LIB_DEPS := $(SRC_DIR)/math-toolkit.h $(INCLUDE_DIR)/b3d.h
 
 # Common include path
 INCLUDES := -I$(INCLUDE_DIR)

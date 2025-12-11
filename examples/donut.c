@@ -1,15 +1,14 @@
 /*
-    Torus (“donut”) demo inspired by externals/donut.c. Generates a parametric
-    torus, applies simple directional lighting, and renders via the public
-    b3d API. Supports headless snapshots with --snapshot=PATH or
-    B3D_SNAPSHOT.
-*/
+ * Torus ("donut") demo applies simple directional lighting and renders via the
+ * public b3d API. It supports headless snapshots with --snapshot=PATH or
+ *   B3D_SNAPSHOT.
+ */
 
-#include <math.h>
-#include <stdlib.h>
+#include <SDL.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
-#include "SDL.h"
+
 #include "b3d.h"
 #include "pngwrite.h"
 
@@ -25,22 +24,28 @@ static const uint32_t palette[] = {
 static const char *get_snapshot_path(int argc, char **argv)
 {
     const char *env = getenv("B3D_SNAPSHOT");
-    if (env && env[0]) return env;
+    if (env && env[0])
+        return env;
+
     for (int i = 1; i < argc; ++i) {
         const char *flag = "--snapshot=";
         size_t len = strlen(flag);
-        if (strncmp(argv[i], flag, len) == 0) {
-            return argv[i] + (int)len;
-        }
+        if (!strncmp(argv[i], flag, len))
+            return argv[i] + (int) len;
     }
     return NULL;
 }
 
-static void write_png(const char *path, const uint32_t *rgba, int width, int height)
+static void write_png(const char *path,
+                      const uint32_t *rgba,
+                      int width,
+                      int height)
 {
     FILE *file = fopen(path, "wb");
-    if (!file) return;
-    uint8_t *out = malloc((size_t)width * (size_t)height * 4);
+    if (!file)
+        return;
+
+    uint8_t *out = malloc((size_t) width * (size_t) height * 4);
     if (!out) {
         fclose(file);
         return;
@@ -48,25 +53,31 @@ static void write_png(const char *path, const uint32_t *rgba, int width, int hei
     size_t idx = 0;
     for (int i = 0; i < width * height; ++i) {
         uint32_t p = rgba[i];
-        out[idx++] = (uint8_t)((p >> 16) & 0xff);
-        out[idx++] = (uint8_t)((p >> 8) & 0xff);
-        out[idx++] = (uint8_t)(p & 0xff);
+        out[idx++] = (uint8_t) ((p >> 16) & 0xff);
+        out[idx++] = (uint8_t) ((p >> 8) & 0xff);
+        out[idx++] = (uint8_t) (p & 0xff);
         out[idx++] = 0xff;
     }
-    png_write(file, (unsigned)width, (unsigned)height, out, true);
+    png_write(file, (unsigned) width, (unsigned) height, out, true);
     free(out);
     fclose(file);
 }
 
 static uint32_t shade_color(float dot)
 {
-    if (dot < 0.0f) dot = 0.0f;
-    if (dot > 1.0f) dot = 1.0f;
-    int idx = (int)(dot * (sizeof(palette) / sizeof(palette[0]) - 1));
+    if (dot < 0.0f)
+        dot = 0.0f;
+    if (dot > 1.0f)
+        dot = 1.0f;
+    int idx = (int) (dot * (sizeof(palette) / sizeof(palette[0]) - 1));
     return palette[idx];
 }
 
-static void render_frame(uint32_t *pixels, b3d_depth_t *depth, int width, int height, float t)
+static void render_frame(uint32_t *pixels,
+                         b3d_depth_t *depth,
+                         int width,
+                         int height,
+                         float t)
 {
     b3d_init(pixels, depth, width, height, 70.0f);
     b3d_set_camera(0.0f, 0.0f, -6.0f, 0.0f, 0.0f, 0.0f);
@@ -76,17 +87,16 @@ static void render_frame(uint32_t *pixels, b3d_depth_t *depth, int width, int he
     b3d_rotate_y(t * 0.6f);
     b3d_rotate_x(t * 0.35f);
 
-    const float R = 2.0f;   /* major radius */
-    const float r = 0.7f;   /* minor radius */
-    const int segU = 96;    /* higher tessellation for smoother surface */
+    const float R = 2.0f; /* major radius */
+    const float r = 0.7f; /* minor radius */
+    const int segU = 96;  /* higher tessellation for smoother surface */
     const int segV = 64;
     const float du = (2.0f * 3.14159265f) / segU;
     const float dv = (2.0f * 3.14159265f) / segV;
     float lx = 0.3f, ly = 0.8f, lz = -0.6f;
     float llen = sqrtf(lx * lx + ly * ly + lz * lz);
-    if (llen > 0.0f) {
-        lx /= llen; ly /= llen; lz /= llen;
-    }
+    if (llen > 0.0f)
+        lx /= llen, ly /= llen, lz /= llen;
 
     for (int iu = 0; iu < segU; ++iu) {
         float u0 = iu * du;
@@ -134,12 +144,14 @@ static void render_frame(uint32_t *pixels, b3d_depth_t *depth, int width, int he
             float nz11 = sv1;
 
             /* Two triangles per quad; average vertex normals for shading */
-            float dot0 = (nx00 * lx + ny00 * ly + nz00 * lz +
-                          nx10 * lx + ny10 * ly + nz10 * lz +
-                          nx11 * lx + ny11 * ly + nz11 * lz) / 3.0f;
-            float dot1 = (nx00 * lx + ny00 * ly + nz00 * lz +
-                          nx11 * lx + ny11 * ly + nz11 * lz +
-                          nx01 * lx + ny01 * ly + nz01 * lz) / 3.0f;
+            float dot0 =
+                (nx00 * lx + ny00 * ly + nz00 * lz + nx10 * lx + ny10 * ly +
+                 nz10 * lz + nx11 * lx + ny11 * ly + nz11 * lz) /
+                3.0f;
+            float dot1 =
+                (nx00 * lx + ny00 * ly + nz00 * lz + nx11 * lx + ny11 * ly +
+                 nz11 * lz + nx01 * lx + ny01 * ly + nz01 * lz) /
+                3.0f;
             /* Gentle gamma to reduce banding across palette steps */
             dot0 = powf(fmaxf(dot0, 0.0f), 0.8f);
             dot1 = powf(fmaxf(dot1, 0.0f), 0.8f);
@@ -155,12 +167,13 @@ static void render_frame(uint32_t *pixels, b3d_depth_t *depth, int width, int he
 
 int main(int argc, char **argv)
 {
-    int width = 960;
-    int height = 720;
+    int width = 800, height = 600;
     const char *snapshot = get_snapshot_path(argc, argv);
 
-    uint32_t *pixels = malloc((size_t)width * (size_t)height * sizeof(pixels[0]));
-    b3d_depth_t *depth = malloc((size_t)width * (size_t)height * sizeof(depth[0]));
+    uint32_t *pixels =
+        malloc((size_t) width * (size_t) height * sizeof(pixels[0]));
+    b3d_depth_t *depth =
+        malloc((size_t) width * (size_t) height * sizeof(depth[0]));
 
     if (snapshot) {
         render_frame(pixels, depth, width, height, 1.4f);
@@ -171,9 +184,14 @@ int main(int argc, char **argv)
     }
 
     SDL_Init(SDL_INIT_VIDEO);
-    SDL_Window *window = SDL_CreateWindow("Donut", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width, height, 0);
-    SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_PRESENTVSYNC);
-    SDL_Texture *texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, width, height);
+    SDL_Window *window =
+        SDL_CreateWindow("Donut", SDL_WINDOWPOS_CENTERED,
+                         SDL_WINDOWPOS_CENTERED, width, height, 0);
+    SDL_Renderer *renderer =
+        SDL_CreateRenderer(window, -1, SDL_RENDERER_PRESENTVSYNC);
+    SDL_Texture *texture =
+        SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
+                          SDL_TEXTUREACCESS_STREAMING, width, height);
     SDL_SetWindowTitle(window, "Donut (torus) demo");
 
     int quit = 0;
@@ -181,12 +199,14 @@ int main(int argc, char **argv)
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT ||
-               (event.type == SDL_KEYDOWN && event.key.keysym.scancode == SDL_SCANCODE_ESCAPE)) {
+                (event.type == SDL_KEYDOWN &&
+                 event.key.keysym.scancode == SDL_SCANCODE_ESCAPE)) {
                 quit = 1;
                 break;
             }
         }
-        if (quit) break;
+        if (quit)
+            break;
 
         float t = SDL_GetTicks() * 0.001f;
         render_frame(pixels, depth, width, height, t);

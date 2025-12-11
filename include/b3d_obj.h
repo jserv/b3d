@@ -4,7 +4,7 @@
  */
 
 /*
- * OBJ file loader for bootleg3D
+ * Wavefront .obj file loader
  *
  * A simple .obj file loader that extracts triangle data.
  * Only supports triangulated meshes (no quads or n-gons).
@@ -18,17 +18,16 @@
 #include <string.h>
 
 typedef struct {
-    float *triangles;    /* Array of triangle vertices (9 floats per triangle: ax,ay,az,bx,by,bz,cx,cy,cz) */
-    int triangle_count;  /* Number of triangles */
-    int vertex_count;    /* Total number of vertex components (triangle_count * 9) */
+    float *triangles;   /* Array of triangle vertices (9 floats per triangle:
+                           ax,ay,az,bx,by,bz,cx,cy,cz) */
+    int triangle_count; /* Number of triangles */
+    int vertex_count; /* Total number of vertex components (triangle_count * 9)
+                       */
 } b3d_mesh_t;
 
-/*
- * Load a mesh from an OBJ file.
- *
- * Parameters:
- *   path - Path to the .obj file
- *   mesh - Pointer to mesh structure to fill
+/* Load a mesh from an OBJ file.
+ * @path : Path to the .obj file
+ * @mesh : Pointer to mesh structure to fill
  *
  * Returns:
  *   0 on success, non-zero on error:
@@ -92,8 +91,8 @@ static inline int b3d_load_obj(const char *path, b3d_mesh_t *mesh)
             }
             if (sscanf(line, " f %d %d %d ", &a, &b, &c) == 3) {
                 /* Validate vertex indices (OBJ uses 1-based indexing) */
-                if (a <= 0 || b <= 0 || c <= 0 ||
-                    a > vi / 3 || b > vi / 3 || c > vi / 3) {
+                if (a <= 0 || b <= 0 || c <= 0 || a > vi / 3 || b > vi / 3 ||
+                    c > vi / 3) {
                     fclose(obj_file);
                     free(vertices);
                     free(triangles);
@@ -102,7 +101,8 @@ static inline int b3d_load_obj(const char *path, b3d_mesh_t *mesh)
                 a--;
                 b--;
                 c--;
-                float *temp = realloc(triangles, (ti + 9) * sizeof(triangles[0]));
+                float *temp =
+                    realloc(triangles, (ti + 9) * sizeof(triangles[0]));
                 if (!temp) {
                     fclose(obj_file);
                     free(vertices);
@@ -133,30 +133,28 @@ static inline int b3d_load_obj(const char *path, b3d_mesh_t *mesh)
     return 0;
 }
 
-/*
- * Free a mesh loaded with b3d_load_obj().
- */
+/* Free a mesh loaded with b3d_load_obj() */
 static inline void b3d_free_mesh(b3d_mesh_t *mesh)
 {
-    if (mesh) {
-        free(mesh->triangles);
-        mesh->triangles = NULL;
-        mesh->triangle_count = 0;
-        mesh->vertex_count = 0;
-    }
+    if (!mesh)
+        return;
+
+    free(mesh->triangles);
+    mesh->triangles = NULL;
+    mesh->triangle_count = 0;
+    mesh->vertex_count = 0;
 }
 
-/*
- * Calculate mesh bounds (useful for centering and scaling).
- *
- * Parameters:
- *   mesh   - The mesh to analyze
- *   min_y  - Output: minimum Y coordinate
- *   max_y  - Output: maximum Y coordinate
- *   max_xz - Output: maximum absolute X or Z coordinate
+/* Calculate mesh bounds (useful for centering and scaling).
+ * @mesh   : The mesh to analyze
+ * @min_y  : Output: minimum Y coordinate
+ * @max_y  : Output: maximum Y coordinate
+ * @max_xz : Output: maximum absolute X or Z coordinate
  */
 static inline void b3d_mesh_bounds(const b3d_mesh_t *mesh,
-                                   float *min_y, float *max_y, float *max_xz)
+                                   float *min_y,
+                                   float *max_y,
+                                   float *max_xz)
 {
     if (!mesh || !mesh->triangles || mesh->vertex_count == 0)
         return;

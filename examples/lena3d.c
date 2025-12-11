@@ -1,38 +1,44 @@
 /*
-    3D Lena heightmap demo.
-    Decodes the compressed Lena image from externals/lena.c, lifts luminance
-    into a heightfield, and renders colored quads via the public b3d API.
-    Supports headless PNG snapshots with --snapshot=PATH or B3D_SNAPSHOT.
-*/
+ * This program renders 128x128 RGB colored quads via the public b3d API.
+ * It supports headless PNG snapshots with --snapshot=PATH or B3D_SNAPSHOT.
+ *
+ * Reference: https://bellard.org/ioccc_lena/
+ */
 
+#include <SDL.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "SDL.h"
+
 #include "b3d.h"
 #include "pngwrite.h"
 
-/* ------------------------- PNG helpers -------------------------- */
+/* PNG helpers */
 static const char *get_snapshot_path(int argc, char **argv)
 {
     const char *env = getenv("B3D_SNAPSHOT");
-    if (env && env[0]) return env;
+    if (env && env[0])
+        return env;
+
     for (int i = 1; i < argc; ++i) {
         const char *flag = "--snapshot=";
         size_t len = strlen(flag);
-        if (strncmp(argv[i], flag, len) == 0) {
-            return argv[i] + (int)len;
-        }
+        if (!strncmp(argv[i], flag, len))
+            return argv[i] + (int) len;
     }
     return NULL;
 }
 
-static void write_png(const char *path, const uint32_t *rgba, int width, int height)
+static void write_png(const char *path,
+                      const uint32_t *rgba,
+                      int width,
+                      int height)
 {
     FILE *file = fopen(path, "wb");
-    if (!file) return;
-    uint8_t *out = malloc((size_t)width * (size_t)height * 4);
+    if (!file)
+        return;
+    uint8_t *out = malloc((size_t) width * (size_t) height * 4);
     if (!out) {
         fclose(file);
         return;
@@ -40,17 +46,17 @@ static void write_png(const char *path, const uint32_t *rgba, int width, int hei
     size_t idx = 0;
     for (int i = 0; i < width * height; ++i) {
         uint32_t p = rgba[i];
-        out[idx++] = (uint8_t)((p >> 16) & 0xff);
-        out[idx++] = (uint8_t)((p >> 8) & 0xff);
-        out[idx++] = (uint8_t)(p & 0xff);
+        out[idx++] = (uint8_t) ((p >> 16) & 0xff);
+        out[idx++] = (uint8_t) ((p >> 8) & 0xff);
+        out[idx++] = (uint8_t) (p & 0xff);
         out[idx++] = 0xff;
     }
-    png_write(file, (unsigned)width, (unsigned)height, out, true);
+    png_write(file, (unsigned) width, (unsigned) height, out, true);
     free(out);
     fclose(file);
 }
 
-/* ----------------------- Lena decoder --------------------------- */
+/* Lena decoder */
 
 #define ACTX_SIGN 3
 #define ACTX_VDATA 4
@@ -262,7 +268,7 @@ static uint32_t *decode_lena(int *out_w, int *out_h)
 
     *out_w = stride;
     *out_h = h;
-    size_t count = (size_t)stride * (size_t)h;
+    size_t count = (size_t) stride * (size_t) h;
     uint32_t *rgba = malloc(count * sizeof(uint32_t));
     if (!rgba)
         return NULL;
@@ -273,25 +279,38 @@ static uint32_t *decode_lena(int *out_w, int *out_h)
         int r = t + co;
         int g = y + cg;
         int bcol = t - co;
-        if (r < 0) r = 0; else if (r > 255) r = 255;
-        if (g < 0) g = 0; else if (g > 255) g = 255;
-        if (bcol < 0) bcol = 0; else if (bcol > 255) bcol = 255;
-        rgba[i] = (uint32_t)(r << 16 | g << 8 | bcol);
+        if (r < 0)
+            r = 0;
+        else if (r > 255)
+            r = 255;
+        if (g < 0)
+            g = 0;
+        else if (g > 255)
+            g = 255;
+        if (bcol < 0)
+            bcol = 0;
+        else if (bcol > 255)
+            bcol = 255;
+        rgba[i] = (uint32_t) (r << 16 | g << 8 | bcol);
     }
     return rgba;
 }
 
-/* ----------------------- Rendering ------------------------------ */
+/* Rendering */
 
-static void render_frame(uint32_t *pixels, b3d_depth_t *depth,
-                         int width, int height,
-                         const uint32_t *img, int img_w, int img_h,
+static void render_frame(uint32_t *pixels,
+                         b3d_depth_t *depth,
+                         int width,
+                         int height,
+                         const uint32_t *img,
+                         int img_w,
+                         int img_h,
                          float t)
 {
     float scale = 0.016f;
     float half_w = img_w * scale * 0.5f;
     float half_h = img_h * scale * 0.5f;
-    float depth_scale = 0.03f;  /* Subtle depth for 3D effect */
+    float depth_scale = 0.03f; /* Subtle depth for 3D effect */
 
     /* Camera positioning - standing image */
     float model_size = (img_w > img_h ? img_w : img_h) * scale;
@@ -302,7 +321,7 @@ static void render_frame(uint32_t *pixels, b3d_depth_t *depth,
     b3d_clear();
 
     b3d_reset();
-    b3d_rotate_y(t * 0.4f);  /* Rotate around Y axis like a spinning photo */
+    b3d_rotate_y(t * 0.4f); /* Rotate around Y axis like a spinning photo */
 
     for (int y = 0; y < img_h - 1; ++y) {
         for (int x = 0; x < img_w - 1; ++x) {
@@ -331,17 +350,13 @@ static void render_frame(uint32_t *pixels, b3d_depth_t *depth,
             float d11 = (lum11 / 255.0f - 0.5f) * depth_scale;
 
             float fx = (x * scale) - half_w;
-            float fy = half_h - (y * scale);  /* Flip Y so head is up */
+            float fy = half_h - (y * scale); /* Flip Y so head is up */
             float fx1 = fx + scale;
             float fy1 = fy - scale;
 
             /* Standing image: X=horizontal, Y=vertical, Z=depth */
-            b3d_triangle(fx,  fy,  d00,
-                         fx1, fy,  d10,
-                         fx1, fy1, d11, c00);
-            b3d_triangle(fx,  fy,  d00,
-                         fx1, fy1, d11,
-                         fx,  fy1, d01, c11);
+            b3d_triangle(fx, fy, d00, fx1, fy, d10, fx1, fy1, d11, c00);
+            b3d_triangle(fx, fy, d00, fx1, fy1, d11, fx, fy1, d01, c11);
         }
     }
 }
@@ -355,12 +370,13 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    int width = 1280;
-    int height = 720;
+    int width = 640, height = 480;
     const char *snapshot = get_snapshot_path(argc, argv);
 
-    uint32_t *pixels = malloc((size_t)width * (size_t)height * sizeof(pixels[0]));
-    b3d_depth_t *depth = malloc((size_t)width * (size_t)height * sizeof(depth[0]));
+    uint32_t *pixels =
+        malloc((size_t) width * (size_t) height * sizeof(pixels[0]));
+    b3d_depth_t *depth =
+        malloc((size_t) width * (size_t) height * sizeof(depth[0]));
     if (!pixels || !depth) {
         fprintf(stderr, "Allocation failed\n");
         free(img);
@@ -377,9 +393,14 @@ int main(int argc, char **argv)
     }
 
     SDL_Init(SDL_INIT_VIDEO);
-    SDL_Window *window = SDL_CreateWindow("Lena 3D", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width, height, 0);
-    SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_PRESENTVSYNC);
-    SDL_Texture *texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, width, height);
+    SDL_Window *window =
+        SDL_CreateWindow("Lena 3D", SDL_WINDOWPOS_CENTERED,
+                         SDL_WINDOWPOS_CENTERED, width, height, 0);
+    SDL_Renderer *renderer =
+        SDL_CreateRenderer(window, -1, SDL_RENDERER_PRESENTVSYNC);
+    SDL_Texture *texture =
+        SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
+                          SDL_TEXTUREACCESS_STREAMING, width, height);
     SDL_SetWindowTitle(window, "Lena heightfield (b3d)");
 
     int quit = 0;
@@ -387,12 +408,14 @@ int main(int argc, char **argv)
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT ||
-               (event.type == SDL_KEYDOWN && event.key.keysym.scancode == SDL_SCANCODE_ESCAPE)) {
+                (event.type == SDL_KEYDOWN &&
+                 event.key.keysym.scancode == SDL_SCANCODE_ESCAPE)) {
                 quit = 1;
                 break;
             }
         }
-        if (quit) break;
+        if (quit)
+            break;
 
         float t = SDL_GetTicks() * 0.001f;
         render_frame(pixels, depth, width, height, img, img_w, img_h, t);
