@@ -23,6 +23,18 @@ Add `#define BOOTLEG3D_IMPLEMENTATION` before ONE of your includes to compile th
 Add `#define BOOTLEG3D_NO_CULLING` to disable back-face culling. \
 Add `#define B3D_DEPTH_16BIT` to use a 16-bit depth buffer (default is 32-bit float).
 
+## Examples
+
+- `examples/cubes.c` - stress test that keeps adding spinning cubes until ~60 fps
+- `examples/obj.c` - OBJ viewer that auto-centers the model
+- `examples/fps.c` - little treasure hunt with randomised world geometry
+- `examples/terrain.c` - animated sine/cosine heightmap inspired by external benchmark scenes
+- `examples/ascii.c` - terminal-only rotating cube, inspired by pingo's Linux terminal renderer
+- `examples/donut.c` - torus demo inspired by externals/donut.c, with directional lighting
+- `examples/lena3d.c` - decodes externals/lena.c and renders it as a colored 3D heightfield
+
+Screenshot PNGs live in `examples/*.png`. Regenerate them headlessly as PNGs with the `--snapshot=PATH` flag or `B3D_SNAPSHOT=/tmp/out.png` when running a demo.
+
 ## API
 
 ```C

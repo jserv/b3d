@@ -5,35 +5,72 @@
     the terrain is generated randomly. This uses a trick where the random number
     generator seed is reset before use to recall the same set of numbers without
     having to store them.
+    Supports headless snapshots with --snapshot=PATH or B3D_SNAPSHOT.
 
     Use WASD or the arrow keys to move, and mouse to look.
 */
 
 #include <time.h> /* random number seed */
+#include <string.h>
 #include "SDL.h"
 #include "b3d.h"
 #include "b3d_obj.h"
+#include "pngwrite.h"
 
 #define RND (rand() / (float)RAND_MAX)
 
-int main(int argument_count, char ** arguments) {
+static const char *get_snapshot_path(int argc, char **argv)
+{
+    const char *env = getenv("B3D_SNAPSHOT");
+    if (env && env[0]) return env;
+    for (int i = 1; i < argc; ++i) {
+        const char *flag = "--snapshot=";
+        size_t len = strlen(flag);
+        if (strncmp(argv[i], flag, len) == 0) {
+            return argv[i] + (int)len;
+        }
+    }
+    return NULL;
+}
+
+static void write_png(const char *path, const uint32_t *rgba, int width, int height)
+{
+    FILE *file = fopen(path, "wb");
+    if (!file) return;
+    uint8_t *out = malloc((size_t)width * (size_t)height * 4);
+    if (!out) { fclose(file); return; }
+    size_t idx = 0;
+    for (int i = 0; i < width * height; ++i) {
+        uint32_t p = rgba[i];
+        out[idx++] = (uint8_t)((p >> 16) & 0xff);
+        out[idx++] = (uint8_t)((p >> 8) & 0xff);
+        out[idx++] = (uint8_t)(p & 0xff);
+        out[idx++] = 0xff;
+    }
+    png_write(file, (unsigned)width, (unsigned)height, out, true);
+    free(out);
+    fclose(file);
+}
+
+int main(int argument_count, char **arguments) {
     int width = 640;
     int height = 480;
+    const char *snapshot = get_snapshot_path(argument_count, arguments);
 
     setbuf(stdout, NULL);
 
-    SDL_Init(SDL_INIT_VIDEO);
-    SDL_Window * window = SDL_CreateWindow("", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width, height, 0);
-    SDL_Renderer * renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_PRESENTVSYNC);
-    SDL_Texture * texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, width, height);
-
-    uint32_t * pixels = malloc(width * height * sizeof(pixels[0]));
-    b3d_depth_t * depth = malloc(width * height * sizeof(depth[0]));
+    uint32_t *pixels = malloc(width * height * sizeof(pixels[0]));
+    b3d_depth_t *depth = malloc(width * height * sizeof(depth[0]));
     b3d_init(pixels, depth, width, height, 90);
 
     /* Load OBJ file */
-    const char * file_name = "assets/moai.obj";
-    if (argument_count == 2) file_name = arguments[1];
+    const char *file_name = "assets/moai.obj";
+    for (int i = 1; i < argument_count; ++i) {
+        if (strncmp(arguments[i], "--snapshot=", 11) != 0) {
+            file_name = arguments[i];
+            break;
+        }
+    }
 
     b3d_mesh_t mesh;
     int err = b3d_load_obj(file_name, &mesh);
@@ -48,6 +85,108 @@ int main(int argument_count, char ** arguments) {
         exit(1);
     }
 
+    float world_size = 20;
+    float boundary = 2.5f;
+    int seed = 12345; /* Fixed seed for reproducible snapshot */
+
+    if (snapshot) {
+        srand(seed);
+        float heads[16];
+        for (int i = 0; i < 16; ++i)
+            heads[i] = (int)((RND * (world_size-boundary) * 2) - (world_size-boundary)) | 1;
+
+        b3d_clear();
+        b3d_set_camera(-1.0f, 1.0f, -3.0f, 1.0f, 0.0f, 0);
+
+        /* Draw checkerboard floor */
+        b3d_reset();
+        for (int z = -world_size; z < world_size; ++z) {
+            for (int x = -world_size; x < world_size; ++x) {
+                uint32_t c = (x+z) & 1 ? 0x424C88 : 0xF7C396;
+                b3d_triangle(x+.5, 0.0, z+.5, x-.5, 0.0, z-.5, x-.5, 0.0, z+.5, c);
+                b3d_triangle(x+.5, 0.0, z+.5, x+.5, 0.0, z-.5, x-.5, 0.0, z-.5, c);
+            }
+        }
+
+        /* Draw golden heads */
+        float t = 1.5f;
+        for (int h = 0; h < 16; h += 2) {
+            float hx = heads[h], hz = heads[h+1];
+            b3d_reset();
+            b3d_rotate_y(h+t*3);
+            b3d_scale(0.4,0.4,0.4);
+            b3d_translate(hx, 0.4 + sinf(h+t*3)*0.1, hz);
+            srand(h);
+            for (int i = 0; i < mesh.vertex_count; i += 9) {
+                uint32_t r = 200 + (int)(RND * 50);
+                uint32_t g = 150 + (int)(RND * 50);
+                uint32_t b = 50  + (int)(RND * 50);
+                b3d_triangle(
+                    mesh.triangles[i + 0], mesh.triangles[i + 1], mesh.triangles[i + 2],
+                    mesh.triangles[i + 3], mesh.triangles[i + 4], mesh.triangles[i + 5],
+                    mesh.triangles[i + 6], mesh.triangles[i + 7], mesh.triangles[i + 8],
+                    (r << 16 | g << 8 | b)
+                );
+            }
+        }
+
+        /* Draw border cubes */
+        srand(seed);
+        for (int i = -world_size; i < world_size; i+=2) {
+            for (int j = 0; j < 4; ++j) {
+                float bx = i, bz = i;
+                switch (j) {
+                    case 0: bx = -world_size; break;
+                    case 1: bx =  world_size; break;
+                    case 2: bz = -world_size; break;
+                    case 3: bz =  world_size; break;
+                }
+                b3d_reset();
+                b3d_rotate_y(RND * 3.14159f);
+                b3d_rotate_x(RND * 3.14159f);
+                b3d_rotate_z(RND * 3.14159f);
+                b3d_scale(1.0f + RND * 2, 1.0f + RND * 8, 1.0f + RND * 2);
+                b3d_translate(bx, 0.5, bz);
+                b3d_triangle(-0.5,-0.5,-0.5, -0.5, 0.5,-0.5,  0.5, 0.5,-0.5, 0xfcd0a1);
+                b3d_triangle(-0.5,-0.5,-0.5,  0.5, 0.5,-0.5,  0.5,-0.5,-0.5, 0xb1b695);
+                b3d_triangle( 0.5,-0.5,-0.5,  0.5, 0.5,-0.5,  0.5, 0.5, 0.5, 0x53917e);
+                b3d_triangle( 0.5,-0.5,-0.5,  0.5, 0.5, 0.5,  0.5,-0.5, 0.5, 0x63535b);
+                b3d_triangle( 0.5,-0.5, 0.5,  0.5, 0.5, 0.5, -0.5, 0.5, 0.5, 0x6d1a36);
+                b3d_triangle( 0.5,-0.5, 0.5, -0.5, 0.5, 0.5, -0.5,-0.5, 0.5, 0xd4e09b);
+                b3d_triangle(-0.5,-0.5, 0.5, -0.5, 0.5, 0.5, -0.5, 0.5,-0.5, 0xf6f4d2);
+                b3d_triangle(-0.5,-0.5, 0.5, -0.5, 0.5,-0.5, -0.5,-0.5,-0.5, 0xcbdfbd);
+                b3d_triangle(-0.5, 0.5,-0.5, -0.5, 0.5, 0.5,  0.5, 0.5, 0.5, 0xf19c79);
+                b3d_triangle(-0.5, 0.5,-0.5,  0.5, 0.5, 0.5,  0.5, 0.5,-0.5, 0xa44a3f);
+                b3d_triangle( 0.5,-0.5, 0.5, -0.5,-0.5, 0.5, -0.5,-0.5,-0.5, 0x5465ff);
+                b3d_triangle( 0.5,-0.5, 0.5, -0.5,-0.5,-0.5,  0.5,-0.5,-0.5, 0x788bff);
+            }
+        }
+
+        /* Draw pyramids */
+        srand(seed);
+        for (int i = 0; i < 20; ++i) {
+            b3d_reset();
+            b3d_scale(1, 1 + RND * 3, 1);
+            b3d_rotate_y(RND * 3.14159f);
+            b3d_translate((RND * world_size * 2) - world_size, 0, (RND * world_size * 2) - world_size);
+            b3d_triangle(0.0, 2.0, 0.0,-1.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0x004749);
+            b3d_triangle(0.0, 2.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0,-1.0, 0x00535a);
+            b3d_triangle(0.0, 2.0, 0.0, 1.0, 0.0,-1.0,-1.0, 0.0,-1.0, 0x00746b);
+            b3d_triangle(0.0, 2.0, 0.0,-1.0, 0.0,-1.0,-1.0, 0.0, 1.0, 0x00945c);
+        }
+
+        write_png(snapshot, pixels, width, height);
+        free(pixels);
+        free(depth);
+        b3d_free_mesh(&mesh);
+        return 0;
+    }
+
+    SDL_Init(SDL_INIT_VIDEO);
+    SDL_Window *window = SDL_CreateWindow("", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width, height, 0);
+    SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_PRESENTVSYNC);
+    SDL_Texture *texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, width, height);
+
     float player_x = -1.0f;
     float player_z = -3.0f;
     float player_height = 1.0f;
@@ -59,10 +198,7 @@ int main(int argument_count, char ** arguments) {
     int up = 0, down = 0, left = 0, right = 0, crouch = 0;
     SDL_SetRelativeMouseMode(1);
 
-    float world_size = 20;
-    float boundary = 2.5f;
-
-    int seed = time(NULL);
+    seed = time(NULL);
     srand(seed);
     float heads[16];
     for (int i = 0; i < 16; ++i) {
