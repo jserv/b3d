@@ -18,7 +18,7 @@ derived from [bootleg3D](https://github.com/malespiaut/bootleg3d).
 ```
 
 Compile-time options:
-- `BOOTLEG3D_NO_CULLING` — disable back-face culling
+- `B3D_NO_CULLING` — disable back-face culling
 - `B3D_DEPTH_16BIT` — use 16-bit depth buffer (halves memory)
 
 ## Examples

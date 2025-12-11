@@ -1,5 +1,5 @@
 /*
-    An example of using bootleg3d that draws some spinning cubes using SDL2.
+    An example of using b3d that draws some spinning cubes using SDL2.
     This can be used as a crude benchmark, as it will add more cubes to the
     scene until the framerate is around 60fps.
     Supports headless snapshots with --snapshot=PATH or B3D_SNAPSHOT.

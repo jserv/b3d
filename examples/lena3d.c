@@ -1,7 +1,7 @@
 /*
     3D Lena heightmap demo.
     Decodes the compressed Lena image from externals/lena.c, lifts luminance
-    into a heightfield, and renders colored quads via the public bootleg3d API.
+    into a heightfield, and renders colored quads via the public b3d API.
     Supports headless PNG snapshots with --snapshot=PATH or B3D_SNAPSHOT.
 */
 
@@ -380,7 +380,7 @@ int main(int argc, char **argv)
     SDL_Window *window = SDL_CreateWindow("Lena 3D", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width, height, 0);
     SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_PRESENTVSYNC);
     SDL_Texture *texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, width, height);
-    SDL_SetWindowTitle(window, "Lena heightfield (bootleg3d)");
+    SDL_SetWindowTitle(window, "Lena heightfield (b3d)");
 
     int quit = 0;
     while (!quit) {

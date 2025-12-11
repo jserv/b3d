@@ -11,7 +11,7 @@
 
 /*
  * Optional compile-time configuration:
- *   BOOTLEG3D_NO_CULLING - Define to disable back-face culling
+ *   B3D_NO_CULLING - Define to disable back-face culling
  *   B3D_DEPTH_16BIT      - Define to use 16-bit depth buffer (saves memory, less precision)
  */
 

@@ -1,5 +1,5 @@
 /*
-    Loads a model from a '.obj' file and renders it using bootleg3d.
+    Loads a model from a '.obj' file and renders it using b3d.
     You can pass the path to a file as the first argument, otherwise
     it will load a file (moai.obj) provided in this examples folder.
     Supports headless snapshots with --snapshot=PATH or B3D_SNAPSHOT.

@@ -1,7 +1,7 @@
 /*
     Animated heightmap inspired by the terrain and benchmark scenes in the
     external software renderers. Builds a simple sine/cosine height field and
-    lets bootleg3d churn through thousands of small triangles.
+    lets b3d churn through thousands of small triangles.
 */
 
 #include <math.h>

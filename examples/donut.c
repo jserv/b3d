@@ -1,7 +1,7 @@
 /*
     Torus (“donut”) demo inspired by externals/donut.c. Generates a parametric
     torus, applies simple directional lighting, and renders via the public
-    bootleg3d API. Supports headless snapshots with --snapshot=PATH or
+    b3d API. Supports headless snapshots with --snapshot=PATH or
     B3D_SNAPSHOT.
 */
 

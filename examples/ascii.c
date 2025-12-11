@@ -1,7 +1,7 @@
 /*
     ASCII renderer inspired by the terminal output demos in externals (e.g. pingo).
     Renders a rotating cube into a tiny framebuffer and prints characters to stdout.
-    Uses only the public bootleg3d API, no SDL required.
+    Uses only the public b3d API, no SDL required.
 */
 
 #include <stdio.h>

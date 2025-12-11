@@ -182,7 +182,7 @@ int b3d_triangle(float ax, float ay, float az,
     t.p[0] = b3d_mat_mul_vec(b3d_model, t.p[0]);
     t.p[1] = b3d_mat_mul_vec(b3d_model, t.p[1]);
     t.p[2] = b3d_mat_mul_vec(b3d_model, t.p[2]);
-#ifndef BOOTLEG3D_NO_CULLING
+#ifndef B3D_NO_CULLING
     b3d_vec_t line_a = b3d_vec_sub(t.p[1], t.p[0]);
     b3d_vec_t line_b = b3d_vec_sub(t.p[2], t.p[0]);
     b3d_vec_t normal = b3d_vec_cross(line_a, line_b);
