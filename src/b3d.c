@@ -188,6 +188,11 @@ static void b3d_rasterize(float ax,
         int n = end - start;
         /* Unrolled loop: process 4 pixels at a time */
         while (n >= 4) {
+            /* Check if we are approaching buffer bounds */
+            if ((dp + 4) > (b3d_depth + (size_t)b3d_height * (size_t)b3d_width) ||
+                (pp + 4) > (b3d_pixels + (size_t)b3d_height * (size_t)b3d_width)) {
+                break;
+            }
             PUT_PIXEL(0);
             PUT_PIXEL(1);
             PUT_PIXEL(2);
@@ -197,6 +202,11 @@ static void b3d_rasterize(float ax,
         }
         /* Remainder loop: process remaining pixels */
         while (n-- > 0) {
+            /* Check if we are approaching buffer bounds */
+            if (dp >= (b3d_depth + (size_t)b3d_height * (size_t)b3d_width) ||
+                pp >= (b3d_pixels + (size_t)b3d_height * (size_t)b3d_width)) {
+                break;
+            }
             PUT_PIXEL(0);
             dp++, pp++;
         }
@@ -250,6 +260,11 @@ static void b3d_rasterize(float ax,
         int n = end - start;
         /* Unrolled loop: process 4 pixels at a time */
         while (n >= 4) {
+            /* Check if we are approaching buffer bounds */
+            if ((dp + 4) > (b3d_depth + (size_t)b3d_height * (size_t)b3d_width) ||
+                (pp + 4) > (b3d_pixels + (size_t)b3d_height * (size_t)b3d_width)) {
+                break;
+            }
             PUT_PIXEL(0);
             PUT_PIXEL(1);
             PUT_PIXEL(2);
@@ -259,6 +274,11 @@ static void b3d_rasterize(float ax,
         }
         /* Remainder loop: process remaining pixels */
         while (n-- > 0) {
+            /* Check if we are approaching buffer bounds */
+            if (dp >= (b3d_depth + (size_t)b3d_height * (size_t)b3d_width) ||
+                pp >= (b3d_pixels + (size_t)b3d_height * (size_t)b3d_width)) {
+                break;
+            }
             PUT_PIXEL(0);
             dp++, pp++;
         }
@@ -491,8 +511,17 @@ void b3d_clear(void)
 {
     if (!b3d_depth || !b3d_pixels || b3d_width <= 0 || b3d_height <= 0)
         return;
+
     b3d_clip_drop_count = 0;
+    /* Check for integer overflow when calculating buffer size */
+    if ((size_t)b3d_width > SIZE_MAX / (size_t)b3d_height)
+        return; /* Prevent overflow */
+
     size_t count = (size_t) b3d_width * (size_t) b3d_height;
+    /* Also check for overflow in the pixel buffer size calculation */
+    if (count > SIZE_MAX / sizeof(b3d_pixels[0]))
+        return; /* Prevent overflow */
+
     for (size_t i = 0; i < count; ++i)
         b3d_depth[i] = B3D_DEPTH_CLEAR;
     memset(b3d_pixels, 0, count * sizeof(b3d_pixels[0]));

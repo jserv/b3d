@@ -13,6 +13,7 @@
 #ifndef B3D_OBJ_H
 #define B3D_OBJ_H
 
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -61,6 +62,12 @@ static inline int b3d_load_obj(const char *path, b3d_mesh_t *mesh)
     while (fgets(line, sizeof(line), obj_file)) {
         if (line[0] == 'v' && line[1] == ' ' &&
             sscanf(line, " v %f %f %f ", &x, &y, &z) == 3) {
+            /* Check for integer overflow before realloc */
+            if (vi > INT_MAX - 3) {
+                fclose(obj_file);
+                free(vertices);
+                return 2;
+            }
             float *temp = realloc(vertices, (vi + 3) * sizeof(vertices[0]));
             if (!temp) {
                 fclose(obj_file);
@@ -101,6 +108,13 @@ static inline int b3d_load_obj(const char *path, b3d_mesh_t *mesh)
                 a--;
                 b--;
                 c--;
+                /* Check for integer overflow before realloc */
+                if (ti > INT_MAX - 9) {
+                    fclose(obj_file);
+                    free(vertices);
+                    free(triangles);
+                    return 2;
+                }
                 float *temp =
                     realloc(triangles, (ti + 9) * sizeof(triangles[0]));
                 if (!temp) {
@@ -110,6 +124,14 @@ static inline int b3d_load_obj(const char *path, b3d_mesh_t *mesh)
                     return 2;
                 }
                 triangles = temp;
+                /* Bounds check for vertex array access */
+                if ((a * 3 + 2) >= vi || (b * 3 + 2) >= vi ||
+                    (c * 3 + 2) >= vi) {
+                    fclose(obj_file);
+                    free(vertices);
+                    free(triangles);
+                    return 3;
+                }
                 triangles[ti++] = vertices[(a * 3) + 0];
                 triangles[ti++] = vertices[(a * 3) + 1];
                 triangles[ti++] = vertices[(a * 3) + 2];
@@ -139,8 +161,10 @@ static inline void b3d_free_mesh(b3d_mesh_t *mesh)
     if (!mesh)
         return;
 
-    free(mesh->triangles);
-    mesh->triangles = NULL;
+    if (mesh->triangles) {
+        free(mesh->triangles);
+        mesh->triangles = NULL;
+    }
     mesh->triangle_count = 0;
     mesh->vertex_count = 0;
 }
@@ -164,6 +188,9 @@ static inline void b3d_mesh_bounds(const b3d_mesh_t *mesh,
     float maxxz = 0;
 
     for (int i = 0; i < mesh->vertex_count; i += 3) {
+        /* Bounds check to prevent array access beyond allocated memory */
+        if (i + 2 >= mesh->vertex_count)
+            break;
         float y = mesh->triangles[i + 1];
         if (y < miny)
             miny = y;
