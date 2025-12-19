@@ -10,7 +10,7 @@
 #include <string.h>
 
 #include "b3d.h"
-#include "pngwrite.h"
+#include "utils.h"
 
 /* Warm-to-cool gradient for nicer lighting */
 static const uint32_t palette[] = {
@@ -20,48 +20,6 @@ static const uint32_t palette[] = {
     0xdcc5bc, 0xeecfa5, 0xf7d88e, 0xfde07a, 0xfdd567, 0xfbc556, 0xf7b445,
     0xf3a235, 0xee9028, 0xe77d1b, 0xdd6911, 0xd05509,
 };
-
-static const char *get_snapshot_path(int argc, char **argv)
-{
-    const char *env = getenv("B3D_SNAPSHOT");
-    if (env && env[0])
-        return env;
-
-    for (int i = 1; i < argc; ++i) {
-        const char *flag = "--snapshot=";
-        size_t len = strlen(flag);
-        if (!strncmp(argv[i], flag, len))
-            return argv[i] + (int) len;
-    }
-    return NULL;
-}
-
-static void generate(const char *path,
-                     const uint32_t *rgba,
-                     int width,
-                     int height)
-{
-    FILE *file = fopen(path, "wb");
-    if (!file)
-        return;
-
-    uint8_t *out = malloc((size_t) width * (size_t) height * 4);
-    if (!out) {
-        fclose(file);
-        return;
-    }
-    size_t idx = 0;
-    for (int i = 0; i < width * height; ++i) {
-        uint32_t p = rgba[i];
-        out[idx++] = (uint8_t) ((p >> 16) & 0xff);
-        out[idx++] = (uint8_t) ((p >> 8) & 0xff);
-        out[idx++] = (uint8_t) (p & 0xff);
-        out[idx++] = 0xff;
-    }
-    png_write(file, (unsigned) width, (unsigned) height, out, true);
-    free(out);
-    fclose(file);
-}
 
 static uint32_t shade_color(float dot)
 {
@@ -177,7 +135,7 @@ int main(int argc, char **argv)
 
     if (snapshot) {
         render_frame(pixels, depth, width, height, 1.4f);
-        generate(snapshot, pixels, width, height);
+        write_png(snapshot, pixels, width, height);
         free(pixels);
         free(depth);
         return 0;
