@@ -13,6 +13,37 @@
 #include "b3d.h"
 #include "utils.h"
 
+/* How many vertices are required to render a 3D cube?
+ *              ________________
+ *             /               /|          z   y
+ *            /               / |          |  /
+ *           /_______________/  |          | /
+ *           |               |  |          |/____ x
+ *           |     FRONT     |  |         (Origin)
+ *           |               |  /
+ *           |               | /
+ *           |_______________|/
+ *
+ * Geometry / Topology: 8 Vertices
+ *   - In pure mathematics, a cube is defined by its 8 corners
+ *   - If you are only dealing with the wireframe or a basic mathematical model,
+ *     the answer is 8.
+ * Standard 3D Rendering Pipeline: 24 Vertices
+ *   - Vertex Attributes: In modern APIs (OpenGL, Vulkan, Direct3D), a "Vertex"
+ *     is not just a position; it is a collection of data including Normals
+ *     (lighting direction) and UV Coordinates (texture mapping).
+ *   - Hard Edges: To achieve "Flat Shading" or sharp edges, each face must have
+ *     its own normal vector. Since one corner is shared by 3 faces, but each
+ *     face needs a different normal at that point, the vertex cannot be shared.
+ *   - Calculation: 6 faces × 4 vertices per face = 24 unique vertices in the
+ * Vertex Buffer. GPU Indexing: 36 Indices
+ *   - GPUs render surfaces using triangles. Each square face of a cube
+ *     consists of 2 triangles.
+ *   - 6 faces × 2 triangles × 3 vertices per triangle = 36 vertex references.
+ *   - While there are 24 physical vertices in memory, the Index Buffer will
+ *     contain 36 entries to tell the GPU which vertices to connect.
+ */
+
 static void render_cubes(uint32_t *pixels,
                          b3d_depth_t *depth,
                          int width,
