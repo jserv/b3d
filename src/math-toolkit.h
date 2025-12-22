@@ -323,6 +323,27 @@ static inline b3d_vec_t b3d_vec_norm(b3d_vec_t v)
 /*
  * Matrix operations
  */
+
+/* Build matrix from 4 row vectors */
+static inline b3d_mat_t b3d_mat_from_rows(b3d_vec_t r0,
+                                          b3d_vec_t r1,
+                                          b3d_vec_t r2,
+                                          b3d_vec_t r3)
+{
+    return (b3d_mat_t) {{
+        {r0.x, r0.y, r0.z, r0.w},
+        {r1.x, r1.y, r1.z, r1.w},
+        {r2.x, r2.y, r2.z, r2.w},
+        {r3.x, r3.y, r3.z, r3.w},
+    }};
+}
+
+/* Extract row as vec3 (w=0) */
+static inline b3d_vec_t b3d_mat_row3(b3d_mat_t m, int r)
+{
+    return (b3d_vec_t) {m.m[r][0], m.m[r][1], m.m[r][2], 0};
+}
+
 static inline b3d_mat_t b3d_mat_ident(void)
 {
     return (b3d_mat_t) {{
@@ -445,59 +466,52 @@ static inline b3d_vec_t b3d_mat_mul_vec(b3d_mat_t m, b3d_vec_t v)
     };
 }
 
+/* Quick inverse for affine transforms with orthonormal rotation.
+ * Only valid when the 3x3 rotation part is orthonormal (no scaling/shearing).
+ * For general matrices, use full matrix inversion instead.
+ */
 static inline b3d_mat_t b3d_mat_qinv(b3d_mat_t m)
 {
-    b3d_mat_t o = (b3d_mat_t) {{
-        [0][0] = m.m[0][0],
-        [0][1] = m.m[1][0],
-        [0][2] = m.m[2][0],
-        [0][3] = 0,
-        [1][0] = m.m[0][1],
-        [1][1] = m.m[1][1],
-        [1][2] = m.m[2][1],
-        [1][3] = 0,
-        [2][0] = m.m[0][2],
-        [2][1] = m.m[1][2],
-        [2][2] = m.m[2][2],
-        [2][3] = 0,
-    }};
-    o.m[3][0] = -(m.m[3][0] * o.m[0][0] + m.m[3][1] * o.m[1][0] +
-                  m.m[3][2] * o.m[2][0]);
-    o.m[3][1] = -(m.m[3][0] * o.m[0][1] + m.m[3][1] * o.m[1][1] +
-                  m.m[3][2] * o.m[2][1]);
-    o.m[3][2] = -(m.m[3][0] * o.m[0][2] + m.m[3][1] * o.m[1][2] +
-                  m.m[3][2] * o.m[2][2]);
-    o.m[3][3] = 1;
-    return o;
+    /* Extract original rows for transpose and translation computation */
+    b3d_vec_t m0 = b3d_mat_row3(m, 0);
+    b3d_vec_t m1 = b3d_mat_row3(m, 1);
+    b3d_vec_t m2 = b3d_mat_row3(m, 2);
+    b3d_vec_t t = b3d_mat_row3(m, 3);
+
+    /* Transpose 3x3 rotation, compute inverse translation: -R^T * t */
+    return b3d_mat_from_rows(
+        (b3d_vec_t) {m0.x, m1.x, m2.x, 0}, (b3d_vec_t) {m0.y, m1.y, m2.y, 0},
+        (b3d_vec_t) {m0.z, m1.z, m2.z, 0},
+        (b3d_vec_t) {-b3d_vec_dot(t, m0), -b3d_vec_dot(t, m1),
+                     -b3d_vec_dot(t, m2), 1});
 }
 
 static inline b3d_mat_t b3d_mat_point_at(b3d_vec_t pos,
                                          b3d_vec_t target,
                                          b3d_vec_t up)
 {
-    b3d_vec_t forward = b3d_vec_sub(target, pos);
-    forward = b3d_vec_norm(forward);
-    b3d_vec_t a = b3d_vec_mul(forward, b3d_vec_dot(up, forward));
-    up = b3d_vec_norm(b3d_vec_sub(up, a));
-    b3d_vec_t right = b3d_vec_cross(up, forward);
-    return (b3d_mat_t) {{
-        [0][0] = right.x,
-        [0][1] = right.y,
-        [0][2] = right.z,
-        [0][3] = 0,
-        [1][0] = up.x,
-        [1][1] = up.y,
-        [1][2] = up.z,
-        [1][3] = 0,
-        [2][0] = forward.x,
-        [2][1] = forward.y,
-        [2][2] = forward.z,
-        [2][3] = 0,
-        [3][0] = pos.x,
-        [3][1] = pos.y,
-        [3][2] = pos.z,
-        [3][3] = 1,
-    }};
+    b3d_vec_t fwd = b3d_vec_sub(target, pos);
+
+    /* Guard: pos == target produces zero forward vector */
+    if (b3d_vec_dot(fwd, fwd) < B3D_EPSILON)
+        return b3d_mat_ident();
+
+    fwd = b3d_vec_norm(fwd);
+
+    /* Gram-Schmidt: remove forward component from up */
+    up = b3d_vec_sub(up, b3d_vec_mul(fwd, b3d_vec_dot(up, fwd)));
+
+    /* Guard: up parallel to forward produces zero up vector */
+    if (b3d_vec_dot(up, up) < B3D_EPSILON)
+        return b3d_mat_ident();
+
+    up = b3d_vec_norm(up);
+    b3d_vec_t right = b3d_vec_cross(up, fwd);
+
+    return b3d_mat_from_rows((b3d_vec_t) {right.x, right.y, right.z, 0},
+                             (b3d_vec_t) {up.x, up.y, up.z, 0},
+                             (b3d_vec_t) {fwd.x, fwd.y, fwd.z, 0},
+                             (b3d_vec_t) {pos.x, pos.y, pos.z, 1});
 }
 
 /*
