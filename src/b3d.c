@@ -67,42 +67,86 @@ static void b3d_update_screen_planes(void)
     b3d_planes_cached_h = b3d_height;
 }
 
+static inline b3d_scalar_t b3d_depth_load(b3d_depth_t v)
+{
+#ifdef B3D_DEPTH_16BIT
+    /* Direct: uint16 [0, 65535] → fixed-point [0, B3D_FP_ONE]
+     * Special-case max value to ensure 0xFFFF → B3D_FP_ONE exactly,
+     * so fragments at depth 1.0 pass the far-plane depth test. */
+    if (v == 0xFFFF)
+        return (b3d_scalar_t) B3D_FP_ONE;
+    /* Reciprocal multiply for other values: v/65535 ≈ (v * 65537) >> 16 */
+    return (b3d_scalar_t) (((uint32_t) v * 65537U) >> 16);
+#else
+    return (b3d_scalar_t) v;
+#endif
+}
+
+static inline b3d_depth_t b3d_depth_store(b3d_scalar_t v)
+{
+#ifdef B3D_DEPTH_16BIT
+    /* Direct: fixed-point [0, B3D_FP_ONE] → uint16 [0, 65535]
+     * Add 0.5 ulp for unbiased rounding before shift */
+    if (v <= 0)
+        return 0;
+    if (v >= B3D_FP_ONE)
+        return 0xFFFF;
+    return (b3d_depth_t) ((((int64_t) v * 65535) + (1 << (B3D_FP_BITS - 1))) >>
+                          B3D_FP_BITS);
+#else
+    return (b3d_depth_t) v;
+#endif
+}
+
+static inline b3d_scalar_t b3d_fp_min(b3d_scalar_t a, b3d_scalar_t b)
+{
+    return a < b ? a : b;
+}
+
+static inline b3d_scalar_t b3d_fp_max(b3d_scalar_t a, b3d_scalar_t b)
+{
+    return a > b ? a : b;
+}
+
+#define B3D_FP_DEGEN_THRESHOLD B3D_FLOAT_TO_FP(B3D_DEGEN_THRESHOLD)
+
 /* Pixel write macro for scanline unrolling */
-#define PUT_PIXEL(i)                         \
-    do {                                     \
-        if (d < b3d_depth_to_float(dp[i])) { \
-            dp[i] = b3d_depth_from_float(d); \
-            pp[i] = c;                       \
-        }                                    \
-        d += depth_step;                     \
+#define PUT_PIXEL(i)                     \
+    do {                                 \
+        if (d < b3d_depth_load(dp[i])) { \
+            dp[i] = b3d_depth_store(d);  \
+            pp[i] = c;                   \
+        }                                \
+        d = B3D_FP_ADD(d, depth_step);   \
     } while (0)
 
 /* Internal rasterization function */
-static void b3d_rasterize(float ax,
-                          float ay,
-                          float az,
-                          float bx,
-                          float by,
-                          float bz,
-                          float cx,
-                          float cy,
-                          float cz,
+static void b3d_rasterize(b3d_scalar_t ax,
+                          b3d_scalar_t ay,
+                          b3d_scalar_t az,
+                          b3d_scalar_t bx,
+                          b3d_scalar_t by,
+                          b3d_scalar_t bz,
+                          b3d_scalar_t cx,
+                          b3d_scalar_t cy,
+                          b3d_scalar_t cz,
                           uint32_t c)
 {
-    ax = floorf(ax);
-    bx = floorf(bx);
-    cx = floorf(cx);
-    ay = floorf(ay);
-    by = floorf(by);
-    cy = floorf(cy);
+    ax = B3D_FP_FLOOR(ax);
+    bx = B3D_FP_FLOOR(bx);
+    cx = B3D_FP_FLOOR(cx);
+    ay = B3D_FP_FLOOR(ay);
+    by = B3D_FP_FLOOR(by);
+    cy = B3D_FP_FLOOR(cy);
     /* Screen-space AABB early-out */
-    float min_x = fminf(fminf(ax, bx), cx);
-    float max_x = fmaxf(fmaxf(ax, bx), cx);
-    float min_y = fminf(fminf(ay, by), cy);
-    float max_y = fmaxf(fmaxf(ay, by), cy);
-    if (max_x < 0 || min_x >= b3d_width || max_y < 0 || min_y >= b3d_height)
+    b3d_scalar_t min_x = b3d_fp_min(b3d_fp_min(ax, bx), cx);
+    b3d_scalar_t max_x = b3d_fp_max(b3d_fp_max(ax, bx), cx);
+    b3d_scalar_t min_y = b3d_fp_min(b3d_fp_min(ay, by), cy);
+    b3d_scalar_t max_y = b3d_fp_max(b3d_fp_max(ay, by), cy);
+    if (max_x < 0 || min_x >= B3D_INT_TO_FP(b3d_width) || max_y < 0 ||
+        min_y >= B3D_INT_TO_FP(b3d_height))
         return;
-    float t = 0;
+    b3d_scalar_t t = 0;
     if (ay > by) {
         t = ax;
         ax = bx;
@@ -137,33 +181,37 @@ static void b3d_rasterize(float ax,
         cz = t;
     }
     /* Guard against degenerate triangles (division by zero) */
-    float dy_total = cy - ay;
-    float dy_top = by - ay;
-    if (dy_total < B3D_DEGEN_THRESHOLD)
+    b3d_scalar_t dy_total = cy - ay;
+    b3d_scalar_t dy_top = by - ay;
+    if (dy_total < B3D_FP_DEGEN_THRESHOLD)
         return;
 
     /* Precompute triangle gradients */
-    float dx_left = cx - ax;
-    float dz_left = cz - az;
-    float dx_right_top = bx - ax;
-    float dz_right_top = bz - az;
-    float dx_right_bot = cx - bx;
-    float dz_right_bot = cz - bz;
+    b3d_scalar_t dx_left = cx - ax;
+    b3d_scalar_t dz_left = cz - az;
+    b3d_scalar_t dx_right_top = bx - ax;
+    b3d_scalar_t dz_right_top = bz - az;
+    b3d_scalar_t dx_right_bot = cx - bx;
+    b3d_scalar_t dz_right_bot = cz - bz;
 
-    float alpha = 0, alpha_step = 1.0f / dy_total;
-    float beta = 0,
-          beta_step = (dy_top > B3D_DEGEN_THRESHOLD) ? 1.0f / dy_top : 0.0f;
+    b3d_scalar_t alpha = 0;
+    b3d_scalar_t alpha_step = B3D_FP_DIV(B3D_FP_ONE, dy_total);
+    b3d_scalar_t beta = 0;
+    b3d_scalar_t beta_step =
+        (dy_top > B3D_FP_DEGEN_THRESHOLD) ? B3D_FP_DIV(B3D_FP_ONE, dy_top) : 0;
 
-    for (int y = (int) ay; y < by; y++) {
+    int y_start = B3D_FP_TO_INT(ay);
+    int y_end = B3D_FP_TO_INT(by);
+    for (int y = y_start; y < y_end; y++) {
         if (y < 0 || y >= b3d_height) {
             alpha += alpha_step;
             beta += beta_step;
             continue;
         }
-        float sx = ax + dx_left * alpha;
-        float sz = az + dz_left * alpha;
-        float ex = ax + dx_right_top * beta;
-        float ez = az + dz_right_top * beta;
+        b3d_scalar_t sx = ax + B3D_FP_MUL(dx_left, alpha);
+        b3d_scalar_t sz = az + B3D_FP_MUL(dz_left, alpha);
+        b3d_scalar_t ex = ax + B3D_FP_MUL(dx_right_top, beta);
+        b3d_scalar_t ez = az + B3D_FP_MUL(dz_right_top, beta);
         if (sx > ex) {
             t = sx;
             sx = ex;
@@ -172,8 +220,8 @@ static void b3d_rasterize(float ax,
             sz = ez;
             ez = t;
         }
-        float dx = ex - sx;
-        if (dx < B3D_DEGEN_THRESHOLD) {
+        b3d_scalar_t dx = ex - sx;
+        if (dx < B3D_FP_DEGEN_THRESHOLD) {
             alpha += alpha_step;
             beta += beta_step;
             continue;
@@ -181,11 +229,15 @@ static void b3d_rasterize(float ax,
 
         /* Reduce redundant calculations by computing initial depth and
          * incremental step */
-        float depth_start = sz;
-        float depth_step = (ez - sz) / dx;
+        b3d_scalar_t depth_start = sz;
+        b3d_scalar_t depth_step = B3D_FP_DIV(ez - sz, dx);
 
-        int start = (int) sx < 0 ? 0 : (int) sx;
-        int end = (int) ex > b3d_width ? b3d_width : (int) ex;
+        int start = B3D_FP_TO_INT(sx);
+        if (start < 0)
+            start = 0;
+        int end = B3D_FP_TO_INT(ex);
+        if (end > b3d_width)
+            end = b3d_width;
         /* Clamp start to buffer width and use float delta for depth offset */
         if (start > b3d_width)
             start = b3d_width;
@@ -194,21 +246,24 @@ static void b3d_rasterize(float ax,
             beta += beta_step;
             continue;
         }
-        float d = depth_start + depth_step * ((float) start - sx);
+        b3d_scalar_t d =
+            depth_start + B3D_FP_MUL(depth_step, B3D_INT_TO_FP(start) - sx);
         /* Scanline unrolling: pre-compute row base, use pointer arithmetic */
         size_t row_base = (size_t) y * (size_t) b3d_width;
+        size_t buf_size = (size_t) b3d_height * (size_t) b3d_width;
+
+        /* Defensive bounds validation - overflow-safe comparison */
+        if (row_base >= buf_size || (size_t) end > buf_size - row_base) {
+            alpha += alpha_step;
+            beta += beta_step;
+            continue;
+        }
+
         b3d_depth_t *dp = b3d_depth + row_base + start;
         uint32_t *pp = b3d_pixels + row_base + start;
         int n = end - start;
         /* Unrolled loop: process 4 pixels at a time */
         while (n >= 4) {
-            /* Check if we are approaching buffer bounds */
-            if ((dp + 4) >
-                    (b3d_depth + (size_t) b3d_height * (size_t) b3d_width) ||
-                (pp + 4) >
-                    (b3d_pixels + (size_t) b3d_height * (size_t) b3d_width)) {
-                break;
-            }
             PUT_PIXEL(0);
             PUT_PIXEL(1);
             PUT_PIXEL(2);
@@ -218,30 +273,30 @@ static void b3d_rasterize(float ax,
         }
         /* Remainder loop: process remaining pixels */
         while (n-- > 0) {
-            /* Check if we are approaching buffer bounds */
-            if (dp >= (b3d_depth + (size_t) b3d_height * (size_t) b3d_width) ||
-                pp >= (b3d_pixels + (size_t) b3d_height * (size_t) b3d_width)) {
-                break;
-            }
             PUT_PIXEL(0);
             dp++, pp++;
         }
         alpha += alpha_step;
         beta += beta_step;
     }
-    float dy_bot = cy - by;
+    b3d_scalar_t dy_bot = cy - by;
     beta = 0;
-    beta_step = (dy_bot > B3D_DEGEN_THRESHOLD) ? 1.0f / dy_bot : 0.0f;
+    beta_step =
+        (dy_bot > B3D_FP_DEGEN_THRESHOLD) ? B3D_FP_DIV(B3D_FP_ONE, dy_bot) : 0;
 
     /* Precompute depth gradient for bottom half */
-    for (int y = (int) by; y < cy; y++) {
+    y_start = B3D_FP_TO_INT(by);
+    y_end = B3D_FP_TO_INT(cy);
+    for (int y = y_start; y < y_end; y++) {
         if (y < 0 || y >= b3d_height) {
             alpha += alpha_step;
             beta += beta_step;
             continue;
         }
-        float sx = ax + dx_left * alpha, sz = az + dz_left * alpha;
-        float ex = bx + dx_right_bot * beta, ez = bz + dz_right_bot * beta;
+        b3d_scalar_t sx = ax + B3D_FP_MUL(dx_left, alpha);
+        b3d_scalar_t sz = az + B3D_FP_MUL(dz_left, alpha);
+        b3d_scalar_t ex = bx + B3D_FP_MUL(dx_right_bot, beta);
+        b3d_scalar_t ez = bz + B3D_FP_MUL(dz_right_bot, beta);
         if (sx > ex) {
             t = sx;
             sx = ex;
@@ -250,19 +305,23 @@ static void b3d_rasterize(float ax,
             sz = ez;
             ez = t;
         }
-        float dx = ex - sx;
-        if (dx < B3D_DEGEN_THRESHOLD) {
+        b3d_scalar_t dx = ex - sx;
+        if (dx < B3D_FP_DEGEN_THRESHOLD) {
             alpha += alpha_step;
             beta += beta_step;
             continue;
         }
 
         /* compute initial depth and incremental step */
-        float depth_start = sz;
-        float depth_step = (ez - sz) / dx;
+        b3d_scalar_t depth_start = sz;
+        b3d_scalar_t depth_step = B3D_FP_DIV(ez - sz, dx);
 
-        int start = (int) sx < 0 ? 0 : (int) sx;
-        int end = (int) ex > b3d_width ? b3d_width : (int) ex;
+        int start = B3D_FP_TO_INT(sx);
+        if (start < 0)
+            start = 0;
+        int end = B3D_FP_TO_INT(ex);
+        if (end > b3d_width)
+            end = b3d_width;
         /* Clamp start to buffer width and use float delta for depth offset */
         if (start > b3d_width)
             start = b3d_width;
@@ -271,21 +330,24 @@ static void b3d_rasterize(float ax,
             beta += beta_step;
             continue;
         }
-        float d = depth_start + depth_step * ((float) start - sx);
+        b3d_scalar_t d =
+            depth_start + B3D_FP_MUL(depth_step, B3D_INT_TO_FP(start) - sx);
         /* Scanline unrolling: pre-compute row base, use pointer arithmetic */
         size_t row_base = (size_t) y * (size_t) b3d_width;
+        size_t buf_size = (size_t) b3d_height * (size_t) b3d_width;
+
+        /* Defensive bounds validation - overflow-safe comparison */
+        if (row_base >= buf_size || (size_t) end > buf_size - row_base) {
+            alpha += alpha_step;
+            beta += beta_step;
+            continue;
+        }
+
         b3d_depth_t *dp = b3d_depth + row_base + start;
         uint32_t *pp = b3d_pixels + row_base + start;
         int n = end - start;
         /* Unrolled loop: process 4 pixels at a time */
         while (n >= 4) {
-            /* Check if we are approaching buffer bounds */
-            if ((dp + 4) >
-                    (b3d_depth + (size_t) b3d_height * (size_t) b3d_width) ||
-                (pp + 4) >
-                    (b3d_pixels + (size_t) b3d_height * (size_t) b3d_width)) {
-                break;
-            }
             PUT_PIXEL(0);
             PUT_PIXEL(1);
             PUT_PIXEL(2);
@@ -295,11 +357,6 @@ static void b3d_rasterize(float ax,
         }
         /* Remainder loop: process remaining pixels */
         while (n-- > 0) {
-            /* Check if we are approaching buffer bounds */
-            if (dp >= (b3d_depth + (size_t) b3d_height * (size_t) b3d_width) ||
-                pp >= (b3d_pixels + (size_t) b3d_height * (size_t) b3d_width)) {
-                break;
-            }
             PUT_PIXEL(0);
             dp++, pp++;
         }
@@ -400,9 +457,12 @@ int b3d_triangle(float ax,
         src_count = dst_count;
     }
     for (int i = 0; i < src_count; ++i) {
-        b3d_rasterize(src[i].p[0].x, src[i].p[0].y, src[i].p[0].z,
-                      src[i].p[1].x, src[i].p[1].y, src[i].p[1].z,
-                      src[i].p[2].x, src[i].p[2].y, src[i].p[2].z, c);
+        b3d_rasterize(
+            B3D_FLOAT_TO_FP(src[i].p[0].x), B3D_FLOAT_TO_FP(src[i].p[0].y),
+            B3D_FLOAT_TO_FP(src[i].p[0].z), B3D_FLOAT_TO_FP(src[i].p[1].x),
+            B3D_FLOAT_TO_FP(src[i].p[1].y), B3D_FLOAT_TO_FP(src[i].p[1].z),
+            B3D_FLOAT_TO_FP(src[i].p[2].x), B3D_FLOAT_TO_FP(src[i].p[2].y),
+            B3D_FLOAT_TO_FP(src[i].p[2].z), c);
     }
     return 1;
 }

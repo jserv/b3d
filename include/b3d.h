@@ -10,16 +10,25 @@
 #include <stdint.h>
 
 /* Optional compile-time configuration:
- *   B3D_NO_CULLING  : Define to disable back-face culling
- *   B3D_DEPTH_16BIT : Define to use 16-bit depth buffer (saves memory,
- *                     less precision)
+ *   B3D_NO_CULLING   : Disable back-face culling
+ *   B3D_DEPTH_32BIT  : Default, 32-bit fixed-point depth (16.16)
+ *   B3D_DEPTH_16BIT  : Optional, 16-bit depth buffer
+ *   B3D_FLOAT_POINT  : Use floating-point math for comparisons
  */
 
+#ifndef B3D_DEPTH_16BIT
+#ifndef B3D_DEPTH_32BIT
+#define B3D_DEPTH_32BIT 1
+#endif
+#endif
+
 /* Depth buffer element type (depends on compile-time option) */
-#ifdef B3D_DEPTH_16BIT
+#ifdef B3D_FLOAT_POINT
+typedef float b3d_depth_t;
+#elif defined(B3D_DEPTH_16BIT)
 typedef uint16_t b3d_depth_t;
 #else
-typedef float b3d_depth_t;
+typedef int32_t b3d_depth_t;
 #endif
 #define B3D_DEPTH_T_DEFINED
 
