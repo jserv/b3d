@@ -9,7 +9,7 @@ derived from [bootleg3D](https://github.com/malespiaut/bootleg3d).
 - Triangle rasterization with depth buffering and clipping
 - Perspective projection with configurable FOV
 - Model transforms (translate, rotate, scale) and camera control
-- Zero heap allocations; depends only on `<stdint.h>` and `<string.h>`
+- Zero heap allocations; depends only on `<stdbool.h>`, `<stdint.h>`, and `<string.h>`
 - Optional 16-bit depth buffer (`B3D_DEPTH_16BIT`)
 
 ## Usage
@@ -39,8 +39,8 @@ Build with `make all` (requires SDL2). Run headlessly with `--snapshot=PATH`.
 ## API
 
 ```c
-// Setup
-void b3d_init(uint32_t *pixels, b3d_depth_t *depth, int w, int h, float fov);
+// Setup (b3d_init returns false on invalid parameters)
+bool b3d_init(uint32_t *pixels, b3d_depth_t *depth, int w, int h, float fov);
 void b3d_clear(void);
 
 // Transforms (model matrix)
@@ -51,16 +51,20 @@ void b3d_rotate_y(float angle);
 void b3d_rotate_z(float angle);
 void b3d_scale(float x, float y, float z);
 
+// Matrix stack
+bool b3d_push_matrix(void);  // false if stack full
+bool b3d_pop_matrix(void);   // false if stack empty
+
 // Camera
 void b3d_set_camera(float x, float y, float z, float yaw, float pitch, float roll);
 void b3d_look_at(float x, float y, float z);
 void b3d_set_fov(float degrees);
 
-// Rendering
-void b3d_triangle(float ax, float ay, float az,
+// Rendering (returns false if culled/clipped)
+bool b3d_triangle(float ax, float ay, float az,
                   float bx, float by, float bz,
                   float cx, float cy, float cz, uint32_t color);
-int b3d_to_screen(float x, float y, float z, int *sx, int *sy);
+bool b3d_to_screen(float x, float y, float z, int *sx, int *sy);
 
 // Diagnostics
 size_t b3d_get_clip_drop_count(void);

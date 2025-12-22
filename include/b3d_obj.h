@@ -19,22 +19,18 @@
 #include <string.h>
 
 typedef struct {
-    float *triangles;   /* Array of triangle vertices (9 floats per triangle:
-                           ax,ay,az,bx,by,bz,cx,cy,cz) */
+    float *triangles;   /* Triangle vertices: 9 floats per tri (ax,ay,az,...) */
     int triangle_count; /* Number of triangles */
-    int vertex_count; /* Total number of vertex components (triangle_count * 9)
-                       */
+    int vertex_count;   /* Total vertex components (triangle_count * 9) */
 } b3d_mesh_t;
 
 /* Load a mesh from an OBJ file.
- * @path:       Path to the .obj file
- * @mesh:       Pointer to mesh structure to fill
- * Returns 0 on success, non-zero on error:
- *   1 = file not found
- *   2 = memory allocation failed
- *   3 = invalid vertex index in file
- * Note: Only triangulated faces are supported. The mesh must be freed
- * with b3d_free_mesh() when no longer needed.
+ * @path:    path to the .obj file
+ * @mesh:    pointer to mesh structure to fill
+ *
+ * Returns 0 on success, non-zero on error (1 = file not found,
+ * 2 = memory allocation failed, 3 = invalid vertex index).
+ * Only triangulated faces are supported. Free with b3d_free_mesh().
  */
 static inline int b3d_load_obj(const char *path, b3d_mesh_t *mesh)
 {

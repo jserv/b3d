@@ -6,6 +6,7 @@
 #ifndef B3D_H
 #define B3D_H
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -32,8 +33,7 @@ typedef int32_t b3d_depth_t;
 #endif
 #define B3D_DEPTH_T_DEFINED
 
-/*
- * Angle Unit Convention:
+/* Angle Unit Convention:
  *   b3d_rotate_x/y/z(angle) : angle in RADIANS
  *   b3d_set_camera(yaw, pitch, roll): angles in RADIANS
  *   b3d_set_fov(fov) : fov in DEGREES
@@ -45,14 +45,16 @@ typedef int32_t b3d_depth_t;
 
 /* Initialization and clearing */
 
-/* Initialize the renderer with pixel/depth buffers and field of view (degrees)
+/* Initialize the renderer with pixel/depth buffers and field of view (degrees).
  * @pixel_buffer: output pixel buffer (w * h * sizeof(uint32_t) bytes)
  * @depth_buffer: depth buffer (w * h * sizeof(b3d_depth_t) bytes)
  * @w:            buffer width in pixels
  * @h:            buffer height in pixels
  * @fov:          field of view in degrees
+ *
+ * Returns true on success, false on failure (invalid parameters or overflow).
  */
-void b3d_init(uint32_t *pixel_buffer,
+bool b3d_init(uint32_t *pixel_buffer,
               b3d_depth_t *depth_buffer,
               int w,
               int h,
@@ -102,15 +104,15 @@ void b3d_scale(float x, float y, float z);
 
 /* Matrix stack operations for nested transformations */
 
-/* Push current model matrix onto stack. Returns 1 on success, 0 if stack full.
- * Returns 1 on success, 0 if stack full.
+/* Push current model matrix onto stack.
+ * Returns true on success, false if stack full.
  */
-int b3d_push_matrix(void);
+bool b3d_push_matrix(void);
 
-/* Pop model matrix from stack. Returns 1 on success, 0 if stack empty.
- * Returns 1 on success, 0 if stack empty.
+/* Pop model matrix from stack.
+ * Returns true on success, false if stack empty.
  */
-int b3d_pop_matrix(void);
+bool b3d_pop_matrix(void);
 
 /* Direct matrix access (row-major 4x4 matrix, 16 floats) */
 
@@ -150,33 +152,33 @@ void b3d_set_fov(float fov_in_degrees);
 /* Rendering */
 
 /* Render a triangle.
- * @ax, @ay, @az: first vertex coordinates
- * @bx, @by, @bz: second vertex coordinates
- * @cx, @cy, @cz: third vertex coordinates
- * @c:            triangle color in 0xRRGGBB format
+ * @ax, @ay, @az:    first vertex coordinates
+ * @bx, @by, @bz:    second vertex coordinates
+ * @cx, @cy, @cz:    third vertex coordinates
+ * @c:               triangle color in 0xRRGGBB format
  *
- * Returns 1 if rendered, 0 if culled/clipped away.
+ * Returns true if rendered, false if culled/clipped away.
  */
-int b3d_triangle(float ax,
-                 float ay,
-                 float az,
-                 float bx,
-                 float by,
-                 float bz,
-                 float cx,
-                 float cy,
-                 float cz,
-                 uint32_t c);
+bool b3d_triangle(float ax,
+                  float ay,
+                  float az,
+                  float bx,
+                  float by,
+                  float bz,
+                  float cx,
+                  float cy,
+                  float cz,
+                  uint32_t c);
 
 /* Utility functions */
 
 /* Project world coordinate to screen coordinate.
- * @x, @y, @z: world coordinates to project
- * @sx, @sy:   output screen coordinates
+ * @x, @y, @z:    world coordinates to project
+ * @sx, @sy:      output screen coordinates
  *
- * Returns 1 if in front of camera, 0 otherwise.
+ * Returns true if in front of camera, false otherwise.
  */
-int b3d_to_screen(float x, float y, float z, int *sx, int *sy);
+bool b3d_to_screen(float x, float y, float z, int *sx, int *sy);
 
 /* Number of triangles dropped during clipping due to buffer limits (reset by
  * b3d_clear).
