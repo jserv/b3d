@@ -110,6 +110,64 @@ static inline b3d_scalar_t b3d_fp_max(b3d_scalar_t a, b3d_scalar_t b)
 
 #define B3D_FP_DEGEN_THRESHOLD B3D_FLOAT_TO_FP(B3D_DEGEN_THRESHOLD)
 
+/* Swap two vertices (x, y, z components) using token pasting */
+#define SWAP_VERTICES(a, b, tmp) \
+    do {                         \
+        tmp = a##x;              \
+        a##x = b##x;             \
+        b##x = tmp;              \
+        tmp = a##y;              \
+        a##y = b##y;             \
+        b##y = tmp;              \
+        tmp = a##z;              \
+        a##z = b##z;             \
+        b##z = tmp;              \
+    } while (0)
+
+/* Swap span endpoints (x and z) when start > end */
+#define SWAP_SPAN(sx, sz, ex, ez, tmp) \
+    do {                               \
+        tmp = sx;                      \
+        sx = ex;                       \
+        ex = tmp;                      \
+        tmp = sz;                      \
+        sz = ez;                       \
+        ez = tmp;                      \
+    } while (0)
+
+/* Transform all 3 vertices of a triangle by matrix */
+#define TRANSFORM_TRI(tri, mat)                        \
+    do {                                               \
+        (tri).p[0] = b3d_mat_mul_vec(mat, (tri).p[0]); \
+        (tri).p[1] = b3d_mat_mul_vec(mat, (tri).p[1]); \
+        (tri).p[2] = b3d_mat_mul_vec(mat, (tri).p[2]); \
+    } while (0)
+
+/* Perspective divide for all 3 vertices */
+#define PERSPECTIVE_DIV(tri)                                \
+    do {                                                    \
+        (tri).p[0] = b3d_vec_div((tri).p[0], (tri).p[0].w); \
+        (tri).p[1] = b3d_vec_div((tri).p[1], (tri).p[1].w); \
+        (tri).p[2] = b3d_vec_div((tri).p[2], (tri).p[2].w); \
+    } while (0)
+
+/* Convert NDC vertex to screen coordinates */
+#define NDC_TO_SCREEN(p, xs, ys)     \
+    do {                             \
+        (p).x = ((p).x + 1) * (xs);  \
+        (p).y = (-(p).y + 1) * (ys); \
+    } while (0)
+
+/* Clamp integer to [lo, hi] range - inline function avoids double evaluation */
+static inline int b3d_clamp_int(int v, int lo, int hi)
+{
+    if (v < lo)
+        return lo;
+    if (v > hi)
+        return hi;
+    return v;
+}
+
 /* Pixel write macro for scanline unrolling */
 #define PUT_PIXEL(i)                     \
     do {                                 \
@@ -119,6 +177,91 @@ static inline b3d_scalar_t b3d_fp_max(b3d_scalar_t a, b3d_scalar_t b)
         }                                \
         d = B3D_FP_ADD(d, depth_step);   \
     } while (0)
+
+/* Rasterize one half of a triangle (top or bottom).
+ * Left edge always interpolates from (lx,lz) along (dx_left, dz_left).
+ * Right edge interpolates from (rx,rz) along (dx_right, dz_right).
+ * Alpha/beta are passed by pointer to maintain state across calls.
+ */
+static void raster_half(int y_start,
+                        int y_end,
+                        b3d_scalar_t lx,
+                        b3d_scalar_t lz,
+                        b3d_scalar_t dx_left,
+                        b3d_scalar_t dz_left,
+                        b3d_scalar_t rx,
+                        b3d_scalar_t rz,
+                        b3d_scalar_t dx_right,
+                        b3d_scalar_t dz_right,
+                        b3d_scalar_t *alpha,
+                        b3d_scalar_t *beta,
+                        b3d_scalar_t alpha_step,
+                        b3d_scalar_t beta_step,
+                        uint32_t c)
+{
+    b3d_scalar_t t = 0;
+    for (int y = y_start; y < y_end; y++) {
+        if (y < 0 || y >= b3d_height) {
+            *alpha += alpha_step;
+            *beta += beta_step;
+            continue;
+        }
+        b3d_scalar_t sx = lx + B3D_FP_MUL(dx_left, *alpha);
+        b3d_scalar_t sz = lz + B3D_FP_MUL(dz_left, *alpha);
+        b3d_scalar_t ex = rx + B3D_FP_MUL(dx_right, *beta);
+        b3d_scalar_t ez = rz + B3D_FP_MUL(dz_right, *beta);
+        if (sx > ex)
+            SWAP_SPAN(sx, sz, ex, ez, t);
+        b3d_scalar_t dx = ex - sx;
+        if (dx < B3D_FP_DEGEN_THRESHOLD) {
+            *alpha += alpha_step;
+            *beta += beta_step;
+            continue;
+        }
+
+        b3d_scalar_t depth_start = sz;
+        b3d_scalar_t depth_step = B3D_FP_DIV(ez - sz, dx);
+
+        int start = B3D_FP_TO_INT(sx);
+        int end = B3D_FP_TO_INT(ex);
+        start = b3d_clamp_int(start, 0, b3d_width);
+        end = b3d_clamp_int(end, 0, b3d_width);
+        if (start >= end) {
+            *alpha += alpha_step;
+            *beta += beta_step;
+            continue;
+        }
+
+        b3d_scalar_t d =
+            depth_start + B3D_FP_MUL(depth_step, B3D_INT_TO_FP(start) - sx);
+        size_t row_base = (size_t) y * (size_t) b3d_width;
+        size_t buf_size = (size_t) b3d_height * (size_t) b3d_width;
+
+        if (row_base >= buf_size || (size_t) end > buf_size - row_base) {
+            *alpha += alpha_step;
+            *beta += beta_step;
+            continue;
+        }
+
+        b3d_depth_t *dp = b3d_depth + row_base + start;
+        uint32_t *pp = b3d_pixels + row_base + start;
+        int n = end - start;
+        while (n >= 4) {
+            PUT_PIXEL(0);
+            PUT_PIXEL(1);
+            PUT_PIXEL(2);
+            PUT_PIXEL(3);
+            dp += 4, pp += 4;
+            n -= 4;
+        }
+        while (n-- > 0) {
+            PUT_PIXEL(0);
+            dp++, pp++;
+        }
+        *alpha += alpha_step;
+        *beta += beta_step;
+    }
+}
 
 /* Internal rasterization function */
 static void b3d_rasterize(b3d_scalar_t ax,
@@ -149,40 +292,14 @@ static void b3d_rasterize(b3d_scalar_t ax,
         return;
     }
 
-    b3d_scalar_t t = 0;
-    if (ay > by) {
-        t = ax;
-        ax = bx;
-        bx = t;
-        t = ay;
-        ay = by;
-        by = t;
-        t = az;
-        az = bz;
-        bz = t;
-    }
-    if (ay > cy) {
-        t = ax;
-        ax = cx;
-        cx = t;
-        t = ay;
-        ay = cy;
-        cy = t;
-        t = az;
-        az = cz;
-        cz = t;
-    }
-    if (by > cy) {
-        t = bx;
-        bx = cx;
-        cx = t;
-        t = by;
-        by = cy;
-        cy = t;
-        t = bz;
-        bz = cz;
-        cz = t;
-    }
+    /* Sort vertices by Y coordinate (bubble sort for 3 elements) */
+    b3d_scalar_t tmp = 0;
+    if (ay > by)
+        SWAP_VERTICES(a, b, tmp);
+    if (ay > cy)
+        SWAP_VERTICES(a, c, tmp);
+    if (by > cy)
+        SWAP_VERTICES(b, c, tmp);
     /* Guard against degenerate triangles (division by zero) */
     b3d_scalar_t dy_total = cy - ay;
     b3d_scalar_t dy_top = by - ay;
@@ -203,169 +320,19 @@ static void b3d_rasterize(b3d_scalar_t ax,
     b3d_scalar_t beta_step =
         (dy_top > B3D_FP_DEGEN_THRESHOLD) ? B3D_FP_DIV(B3D_FP_ONE, dy_top) : 0;
 
-    int y_start = B3D_FP_TO_INT(ay);
-    int y_end = B3D_FP_TO_INT(by);
-    for (int y = y_start; y < y_end; y++) {
-        if (y < 0 || y >= b3d_height) {
-            alpha += alpha_step;
-            beta += beta_step;
-            continue;
-        }
-        b3d_scalar_t sx = ax + B3D_FP_MUL(dx_left, alpha);
-        b3d_scalar_t sz = az + B3D_FP_MUL(dz_left, alpha);
-        b3d_scalar_t ex = ax + B3D_FP_MUL(dx_right_top, beta);
-        b3d_scalar_t ez = az + B3D_FP_MUL(dz_right_top, beta);
-        if (sx > ex) {
-            t = sx;
-            sx = ex;
-            ex = t;
-            t = sz;
-            sz = ez;
-            ez = t;
-        }
-        b3d_scalar_t dx = ex - sx;
-        if (dx < B3D_FP_DEGEN_THRESHOLD) {
-            alpha += alpha_step;
-            beta += beta_step;
-            continue;
-        }
+    /* Rasterize top half: right edge from A toward B */
+    raster_half(B3D_FP_TO_INT(ay), B3D_FP_TO_INT(by), ax, az, dx_left, dz_left,
+                ax, az, dx_right_top, dz_right_top, &alpha, &beta, alpha_step,
+                beta_step, c);
 
-        /* Reduce redundant calculations by computing initial depth and
-         * incremental step */
-        b3d_scalar_t depth_start = sz;
-        b3d_scalar_t depth_step = B3D_FP_DIV(ez - sz, dx);
-
-        int start = B3D_FP_TO_INT(sx);
-        if (start < 0)
-            start = 0;
-        int end = B3D_FP_TO_INT(ex);
-        if (end > b3d_width)
-            end = b3d_width;
-        /* Clamp start to buffer width and use float delta for depth offset */
-        if (start > b3d_width)
-            start = b3d_width;
-        if (start >= end) {
-            alpha += alpha_step;
-            beta += beta_step;
-            continue;
-        }
-        b3d_scalar_t d =
-            depth_start + B3D_FP_MUL(depth_step, B3D_INT_TO_FP(start) - sx);
-        /* Scanline unrolling: pre-compute row base, use pointer arithmetic */
-        size_t row_base = (size_t) y * (size_t) b3d_width;
-        size_t buf_size = (size_t) b3d_height * (size_t) b3d_width;
-
-        /* Defensive bounds validation - overflow-safe comparison */
-        if (row_base >= buf_size || (size_t) end > buf_size - row_base) {
-            alpha += alpha_step;
-            beta += beta_step;
-            continue;
-        }
-
-        b3d_depth_t *dp = b3d_depth + row_base + start;
-        uint32_t *pp = b3d_pixels + row_base + start;
-        int n = end - start;
-        /* Unrolled loop: process 4 pixels at a time */
-        while (n >= 4) {
-            PUT_PIXEL(0);
-            PUT_PIXEL(1);
-            PUT_PIXEL(2);
-            PUT_PIXEL(3);
-            dp += 4, pp += 4;
-            n -= 4;
-        }
-        /* Remainder loop: process remaining pixels */
-        while (n-- > 0) {
-            PUT_PIXEL(0);
-            dp++, pp++;
-        }
-        alpha += alpha_step;
-        beta += beta_step;
-    }
+    /* Rasterize bottom half: right edge from B toward C */
     b3d_scalar_t dy_bot = cy - by;
     beta = 0;
     beta_step =
         (dy_bot > B3D_FP_DEGEN_THRESHOLD) ? B3D_FP_DIV(B3D_FP_ONE, dy_bot) : 0;
-
-    /* Precompute depth gradient for bottom half */
-    y_start = B3D_FP_TO_INT(by);
-    y_end = B3D_FP_TO_INT(cy);
-    for (int y = y_start; y < y_end; y++) {
-        if (y < 0 || y >= b3d_height) {
-            alpha += alpha_step;
-            beta += beta_step;
-            continue;
-        }
-        b3d_scalar_t sx = ax + B3D_FP_MUL(dx_left, alpha);
-        b3d_scalar_t sz = az + B3D_FP_MUL(dz_left, alpha);
-        b3d_scalar_t ex = bx + B3D_FP_MUL(dx_right_bot, beta);
-        b3d_scalar_t ez = bz + B3D_FP_MUL(dz_right_bot, beta);
-        if (sx > ex) {
-            t = sx;
-            sx = ex;
-            ex = t;
-            t = sz;
-            sz = ez;
-            ez = t;
-        }
-        b3d_scalar_t dx = ex - sx;
-        if (dx < B3D_FP_DEGEN_THRESHOLD) {
-            alpha += alpha_step;
-            beta += beta_step;
-            continue;
-        }
-
-        /* compute initial depth and incremental step */
-        b3d_scalar_t depth_start = sz;
-        b3d_scalar_t depth_step = B3D_FP_DIV(ez - sz, dx);
-
-        int start = B3D_FP_TO_INT(sx);
-        if (start < 0)
-            start = 0;
-        int end = B3D_FP_TO_INT(ex);
-        if (end > b3d_width)
-            end = b3d_width;
-        /* Clamp start to buffer width and use float delta for depth offset */
-        if (start > b3d_width)
-            start = b3d_width;
-        if (start >= end) {
-            alpha += alpha_step;
-            beta += beta_step;
-            continue;
-        }
-        b3d_scalar_t d =
-            depth_start + B3D_FP_MUL(depth_step, B3D_INT_TO_FP(start) - sx);
-        /* Scanline unrolling: pre-compute row base, use pointer arithmetic */
-        size_t row_base = (size_t) y * (size_t) b3d_width;
-        size_t buf_size = (size_t) b3d_height * (size_t) b3d_width;
-
-        /* Defensive bounds validation - overflow-safe comparison */
-        if (row_base >= buf_size || (size_t) end > buf_size - row_base) {
-            alpha += alpha_step;
-            beta += beta_step;
-            continue;
-        }
-
-        b3d_depth_t *dp = b3d_depth + row_base + start;
-        uint32_t *pp = b3d_pixels + row_base + start;
-        int n = end - start;
-        /* Unrolled loop: process 4 pixels at a time */
-        while (n >= 4) {
-            PUT_PIXEL(0);
-            PUT_PIXEL(1);
-            PUT_PIXEL(2);
-            PUT_PIXEL(3);
-            dp += 4, pp += 4;
-            n -= 4;
-        }
-        /* Remainder loop: process remaining pixels */
-        while (n-- > 0) {
-            PUT_PIXEL(0);
-            dp++, pp++;
-        }
-        alpha += alpha_step;
-        beta += beta_step;
-    }
+    raster_half(B3D_FP_TO_INT(by), B3D_FP_TO_INT(cy), ax, az, dx_left, dz_left,
+                bx, bz, dx_right_bot, dz_right_bot, &alpha, &beta, alpha_step,
+                beta_step, c);
 }
 
 #undef PUT_PIXEL
@@ -395,23 +362,17 @@ int b3d_triangle(float ax,
 #ifdef B3D_NO_CULLING
     /* Lazy matrix computation: use cached model*view when culling disabled */
     b3d_update_model_view();
-    t.p[0] = b3d_mat_mul_vec(b3d_model_view, t.p[0]);
-    t.p[1] = b3d_mat_mul_vec(b3d_model_view, t.p[1]);
-    t.p[2] = b3d_mat_mul_vec(b3d_model_view, t.p[2]);
+    TRANSFORM_TRI(t, b3d_model_view);
 #else
     /* Standard path: separate transforms for world-space culling */
-    t.p[0] = b3d_mat_mul_vec(b3d_model, t.p[0]);
-    t.p[1] = b3d_mat_mul_vec(b3d_model, t.p[1]);
-    t.p[2] = b3d_mat_mul_vec(b3d_model, t.p[2]);
+    TRANSFORM_TRI(t, b3d_model);
     b3d_vec_t line_a = b3d_vec_sub(t.p[1], t.p[0]);
     b3d_vec_t line_b = b3d_vec_sub(t.p[2], t.p[0]);
     b3d_vec_t normal = b3d_vec_cross(line_a, line_b);
     b3d_vec_t cam_ray = b3d_vec_sub(t.p[0], b3d_camera);
     if (b3d_vec_dot(normal, cam_ray) > B3D_CULL_THRESHOLD)
         return 0;
-    t.p[0] = b3d_mat_mul_vec(b3d_view, t.p[0]);
-    t.p[1] = b3d_mat_mul_vec(b3d_view, t.p[1]);
-    t.p[2] = b3d_mat_mul_vec(b3d_view, t.p[2]);
+    TRANSFORM_TRI(t, b3d_view);
 #endif
     b3d_triangle_t clipped[2];
     int count = b3d_clip_against_plane((b3d_vec_t) {0, 0, B3D_NEAR_DISTANCE, 1},
@@ -422,23 +383,17 @@ int b3d_triangle(float ax,
     b3d_triangle_t *src = buf_a, *dst = buf_b;
     int src_count = 0;
     for (int n = 0; n < count; ++n) {
-        t.p[0] = b3d_mat_mul_vec(b3d_proj, clipped[n].p[0]);
-        t.p[1] = b3d_mat_mul_vec(b3d_proj, clipped[n].p[1]);
-        t.p[2] = b3d_mat_mul_vec(b3d_proj, clipped[n].p[2]);
+        t = clipped[n];
+        TRANSFORM_TRI(t, b3d_proj);
         if (fabsf(t.p[0].w) < B3D_EPSILON || fabsf(t.p[1].w) < B3D_EPSILON ||
             fabsf(t.p[2].w) < B3D_EPSILON)
             continue;
-        t.p[0] = b3d_vec_div(t.p[0], t.p[0].w);
-        t.p[1] = b3d_vec_div(t.p[1], t.p[1].w);
-        t.p[2] = b3d_vec_div(t.p[2], t.p[2].w);
-        float xs = b3d_width / 2;
-        float ys = b3d_height / 2;
-        t.p[0].x = (t.p[0].x + 1) * xs;
-        t.p[0].y = (-t.p[0].y + 1) * ys;
-        t.p[1].x = (t.p[1].x + 1) * xs;
-        t.p[1].y = (-t.p[1].y + 1) * ys;
-        t.p[2].x = (t.p[2].x + 1) * xs;
-        t.p[2].y = (-t.p[2].y + 1) * ys;
+        PERSPECTIVE_DIV(t);
+        float xs = b3d_width * 0.5f;
+        float ys = b3d_height * 0.5f;
+        NDC_TO_SCREEN(t.p[0], xs, ys);
+        NDC_TO_SCREEN(t.p[1], xs, ys);
+        NDC_TO_SCREEN(t.p[2], xs, ys);
         if (src_count < B3D_CLIP_BUFFER_SIZE)
             src[src_count++] = t;
         else
