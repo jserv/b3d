@@ -390,11 +390,12 @@ int main(void)
     SECTION_END();
 
     printf("======================\n");
-    if (tests_passed == tests_run)
+    if (tests_passed == tests_run) {
         printf(ANSI_GREEN "All %d tests passed" ANSI_RESET "\n", tests_run);
-    else
+    } else {
         printf(ANSI_RED "%d/%d tests failed" ANSI_RESET "\n",
                tests_run - tests_passed, tests_run);
+    }
 
     return tests_passed == tests_run ? 0 : 1;
 }

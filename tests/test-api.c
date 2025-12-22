@@ -24,22 +24,17 @@ static int section_total = 0;
 
 #define TEST(name) static int test_##name(void)
 
-#define RUN_TEST(name)        \
-    do {                      \
-        tests_run++;          \
-        section_total++;      \
-        if (test_##name()) {  \
-            tests_passed++;   \
-            section_passed++; \
-        }                     \
+#define RUN_TEST(name)                        \
+    do {                                      \
+        tests_run++, section_total++;         \
+        if (test_##name())                    \
+            tests_passed++, section_passed++; \
     } while (0)
 
-#define SECTION_BEGIN(name)      \
-    do {                         \
-        section_passed = 0;      \
-        section_total = 0;       \
-        printf("  %-44s", name); \
-        fflush(stdout);          \
+#define SECTION_BEGIN(name)                      \
+    do {                                         \
+        section_passed = 0, section_total = 0;   \
+        printf("  %-44s", name), fflush(stdout); \
     } while (0)
 
 #define SECTION_END()                                            \
@@ -61,14 +56,17 @@ static const char *palette = " .:-=+*#%@";
 
 static char color_to_char(uint32_t c)
 {
+    size_t len = strlen(palette);
+    if (len == 0)
+        return ' ';
+
     unsigned r = (c >> 16) & 0xff;
     unsigned g = (c >> 8) & 0xff;
     unsigned b = (c >> 0) & 0xff;
     float lum = (0.299f * r + 0.587f * g + 0.114f * b) / 255.0f;
-    int idx = (int) (lum * (float) (strlen(palette) - 1) + 0.5f);
+    int idx = (int) (lum * (float) (len - 1) + 0.5f);
     if (idx < 0)
         idx = 0;
-    size_t len = strlen(palette);
     if ((size_t) idx >= len)
         idx = (int) len - 1;
     return palette[idx];
@@ -83,15 +81,17 @@ TEST(api_init)
     b3d_depth_t *depth =
         malloc((size_t) width * (size_t) height * sizeof(b3d_depth_t));
 
-    ASSERT(pixels != NULL);
-    ASSERT(depth != NULL);
+    ASSERT(pixels);
+    ASSERT(depth);
 
     /* Test b3d_init and b3d_clear */
-    b3d_init(pixels, depth, width, height, 65.0f);
+    bool init_ok = b3d_init(pixels, depth, width, height, 65.0f);
+    ASSERT(init_ok);
     b3d_clear();
     /* Verify buffer was cleared (all pixels should be 0 after clear) */
-    int non_zero = 0;
-    for (int i = 0; i < width * height; i++) {
+    const size_t pixel_count = (size_t) width * (size_t) height;
+    size_t non_zero = 0;
+    for (size_t i = 0; i < pixel_count; i++) {
         if (pixels[i] != 0)
             non_zero++;
     }
@@ -114,11 +114,9 @@ TEST(api_transform)
 
     /* Check allocation success */
     if (!pixels || !depth) {
-        if (pixels)
-            free(pixels);
-        if (depth)
-            free(depth);
-        return 0;  // Allocation failed
+        free(pixels);
+        free(depth);
+        return 0;
     }
 
     b3d_init(pixels, depth, width, height, 65.0f);
@@ -289,18 +287,14 @@ TEST(api_matrix_stack)
 
     /* Test stack overflow protection */
     for (int i = 0; i < B3D_MATRIX_STACK_SIZE + 5; i++) {
-        if (b3d_push_matrix() == 0) {
-            /* Stack is full, this is expected */
-            break;
-        }
+        if (b3d_push_matrix() == 0)
+            break; /* Stack is full, this is expected */
     }
 
     /* Test stack underflow protection */
     for (int i = 0; i < B3D_MATRIX_STACK_SIZE + 5; i++) {
-        if (b3d_pop_matrix() == 0) {
-            /* Stack is empty, this is expected */
-            break;
-        }
+        if (b3d_pop_matrix() == 0)
+            break; /* Stack is empty, this is expected */
     }
 
     free(pixels);
@@ -317,11 +311,12 @@ TEST(api_render_ascii)
     b3d_depth_t *depth =
         malloc((size_t) width * (size_t) height * sizeof(b3d_depth_t));
 
-    ASSERT(pixels != NULL);
-    ASSERT(depth != NULL);
+    ASSERT(pixels);
+    ASSERT(depth);
 
     /* Render a simple scene */
-    b3d_init(pixels, depth, width, height, 65.0f);
+    bool init_ok = b3d_init(pixels, depth, width, height, 65.0f);
+    ASSERT(init_ok);
     b3d_set_camera(0.0f, 0.0f, -2.3f, 0.0f, 0.0f, 0.0f);
     b3d_clear();
 
@@ -330,23 +325,35 @@ TEST(api_render_ascii)
     b3d_rotate_x(0.3f);
 
     /* Render a simple cube */
-    b3d_triangle(-0.5, -0.5, -0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5, 0xfcd0a1);
-    b3d_triangle(-0.5, -0.5, -0.5, 0.5, 0.5, -0.5, 0.5, -0.5, -0.5, 0xb1b695);
-    b3d_triangle(0.5, -0.5, -0.5, 0.5, 0.5, -0.5, 0.5, 0.5, 0.5, 0x53917e);
-    b3d_triangle(0.5, -0.5, -0.5, 0.5, 0.5, 0.5, 0.5, -0.5, 0.5, 0x63535b);
-    b3d_triangle(0.5, -0.5, 0.5, 0.5, 0.5, 0.5, -0.5, 0.5, 0.5, 0x6d1a36);
-    b3d_triangle(0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5, -0.5, 0.5, 0xd4e09b);
-    b3d_triangle(-0.5, -0.5, 0.5, -0.5, 0.5, 0.5, -0.5, 0.5, -0.5, 0xf6f4d2);
-    b3d_triangle(-0.5, -0.5, 0.5, -0.5, 0.5, -0.5, -0.5, -0.5, -0.5, 0xcbdfbd);
-    b3d_triangle(-0.5, 0.5, -0.5, -0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0xf19c79);
-    b3d_triangle(-0.5, 0.5, -0.5, 0.5, 0.5, 0.5, 0.5, 0.5, -0.5, 0xa44a3f);
-    b3d_triangle(0.5, -0.5, 0.5, -0.5, -0.5, 0.5, -0.5, -0.5, -0.5, 0x5465ff);
-    b3d_triangle(0.5, -0.5, 0.5, -0.5, -0.5, -0.5, 0.5, -0.5, -0.5, 0x788bff);
+    b3d_triangle(-0.5f, -0.5f, -0.5f, -0.5f, 0.5f, -0.5f, 0.5f, 0.5f, -0.5f,
+                 0xfcd0a1);
+    b3d_triangle(-0.5f, -0.5f, -0.5f, 0.5f, 0.5f, -0.5f, 0.5f, -0.5f, -0.5f,
+                 0xb1b695);
+    b3d_triangle(0.5f, -0.5f, -0.5f, 0.5f, 0.5f, -0.5f, 0.5f, 0.5f, 0.5f,
+                 0x53917e);
+    b3d_triangle(0.5f, -0.5f, -0.5f, 0.5f, 0.5f, 0.5f, 0.5f, -0.5f, 0.5f,
+                 0x63535b);
+    b3d_triangle(0.5f, -0.5f, 0.5f, 0.5f, 0.5f, 0.5f, -0.5f, 0.5f, 0.5f,
+                 0x6d1a36);
+    b3d_triangle(0.5f, -0.5f, 0.5f, -0.5f, 0.5f, 0.5f, -0.5f, -0.5f, 0.5f,
+                 0xd4e09b);
+    b3d_triangle(-0.5f, -0.5f, 0.5f, -0.5f, 0.5f, 0.5f, -0.5f, 0.5f, -0.5f,
+                 0xf6f4d2);
+    b3d_triangle(-0.5f, -0.5f, 0.5f, -0.5f, 0.5f, -0.5f, -0.5f, -0.5f, -0.5f,
+                 0xcbdfbd);
+    b3d_triangle(-0.5f, 0.5f, -0.5f, -0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f,
+                 0xf19c79);
+    b3d_triangle(-0.5f, 0.5f, -0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, -0.5f,
+                 0xa44a3f);
+    b3d_triangle(0.5f, -0.5f, 0.5f, -0.5f, -0.5f, 0.5f, -0.5f, -0.5f, -0.5f,
+                 0x5465ff);
+    b3d_triangle(0.5f, -0.5f, 0.5f, -0.5f, -0.5f, -0.5f, 0.5f, -0.5f, -0.5f,
+                 0x788bff);
 
     /* Convert to ASCII and verify we have some non-empty output */
-    int non_empty_chars = 0;
-    for (int y = 0; y < height; ++y) {
-        for (int x = 0; x < width; ++x) {
+    size_t non_empty_chars = 0;
+    for (size_t y = 0; y < (size_t) height; ++y) {
+        for (size_t x = 0; x < (size_t) width; ++x) {
             uint32_t c = pixels[(size_t) y * (size_t) width + (size_t) x];
             char ch = c ? color_to_char(c) : ' ';
             if (ch != ' ')
@@ -414,7 +421,8 @@ TEST(api_clip_drop_count)
     size_t initial_count = b3d_get_clip_drop_count();
 
     /* Render a valid triangle */
-    b3d_triangle(0.0, 0.0, 0.5, 0.5, 0.5, 0.5, -0.5, 0.5, 0.5, 0xffffff);
+    b3d_triangle(0.0f, 0.0f, 0.5f, 0.5f, 0.5f, 0.5f, -0.5f, 0.5f, 0.5f,
+                 0xffffff);
 
     /* Count should still be the same (no clipping for valid triangle) */
     size_t after_count = b3d_get_clip_drop_count();
@@ -422,8 +430,8 @@ TEST(api_clip_drop_count)
 
     /* Clear should reset count */
     b3d_clear();
-    size_t cleared_count = b3d_get_clip_drop_count();
-    ASSERT(cleared_count == 0);
+    size_t count = b3d_get_clip_drop_count();
+    ASSERT(count == 0);
 
     free(pixels);
     free(depth);
@@ -433,25 +441,361 @@ TEST(api_clip_drop_count)
 /* Test buffer size calculation API */
 TEST(api_buffer_size)
 {
+    size_t size;
+
     /* Test normal cases */
-    ASSERT(b3d_buffer_size(10, 10, sizeof(uint32_t)) ==
-           10 * 10 * sizeof(uint32_t));
-    ASSERT(b3d_buffer_size(100, 50, sizeof(b3d_depth_t)) ==
-           100 * 50 * sizeof(b3d_depth_t));
+    size = b3d_buffer_size(10, 10, sizeof(uint32_t));
+    ASSERT(size == 10 * 10 * sizeof(uint32_t));
+    size = b3d_buffer_size(100, 50, sizeof(b3d_depth_t));
+    ASSERT(size == 100 * 50 * sizeof(b3d_depth_t));
 
     /* Test edge cases */
-    ASSERT(b3d_buffer_size(0, 10, sizeof(uint32_t)) == 0);
-    ASSERT(b3d_buffer_size(10, 0, sizeof(uint32_t)) == 0);
-    ASSERT(b3d_buffer_size(10, 10, 0) == 0);
+    size = b3d_buffer_size(0, 10, sizeof(uint32_t));
+    ASSERT(size == 0);
+    size = b3d_buffer_size(10, 0, sizeof(uint32_t));
+    ASSERT(size == 0);
+    size = b3d_buffer_size(10, 10, 0);
+    ASSERT(size == 0);
 
-    /* Test a case that should trigger the second overflow check: */
-    /* count > SIZE_MAX / elem_size */
-    /* This is hard to trigger on 64-bit systems, so let's just verify that */
-    /* normal operation works and that zero values return 0 as expected */
-    /* The original positive tests already verify normal operation */
-    /* So we'll just make sure we can pass this test */
-    /* Since overflow is hard to trigger on 64-bit systems, we'll just return */
-    /* success */
+    /* Test negative values */
+    size = b3d_buffer_size(-1, 10, sizeof(uint32_t));
+    ASSERT(size == 0);
+    size = b3d_buffer_size(10, -1, sizeof(uint32_t));
+    ASSERT(size == 0);
+
+    return 1;
+}
+
+/* Test b3d_set_model_matrix API */
+TEST(api_set_model_matrix)
+{
+    const int width = 32, height = 32;
+    uint32_t *pixels =
+        malloc((size_t) width * (size_t) height * sizeof(uint32_t));
+    b3d_depth_t *depth =
+        malloc((size_t) width * (size_t) height * sizeof(b3d_depth_t));
+
+    ASSERT(pixels);
+    ASSERT(depth);
+
+    bool init_ok = b3d_init(pixels, depth, width, height, 65.0f);
+    ASSERT(init_ok);
+    b3d_clear();
+
+    /* Create a custom matrix (translation by 5, 10, 15) */
+    float custom_matrix[16] = {
+        1.0f, 0.0f,  0.0f,  0.0f, /* column 0 */
+        0.0f, 1.0f,  0.0f,  0.0f, /* column 1 */
+        0.0f, 0.0f,  1.0f,  0.0f, /* column 2 */
+        5.0f, 10.0f, 15.0f, 1.0f, /* column 3 (translation) */
+    };
+
+    /* Set the custom matrix */
+    b3d_set_model_matrix(custom_matrix);
+
+    /* Retrieve and verify */
+    float retrieved[16];
+    b3d_get_model_matrix(retrieved);
+    ASSERT(fabsf(retrieved[12] - 5.0f) < 0.01f);
+    ASSERT(fabsf(retrieved[13] - 10.0f) < 0.01f);
+    ASSERT(fabsf(retrieved[14] - 15.0f) < 0.01f);
+
+    free(pixels);
+    free(depth);
+    return 1;
+}
+
+/* Test triangle rendering return value */
+TEST(api_triangle_return)
+{
+    const int width = 64, height = 64;
+    uint32_t *pixels =
+        malloc((size_t) width * (size_t) height * sizeof(uint32_t));
+    b3d_depth_t *depth =
+        malloc((size_t) width * (size_t) height * sizeof(b3d_depth_t));
+
+    ASSERT(pixels);
+    ASSERT(depth);
+
+    bool init_ok = b3d_init(pixels, depth, width, height, 65.0f);
+    ASSERT(init_ok);
+    b3d_set_camera(0.0f, 0.0f, -2.3f, 0.0f, 0.0f, 0.0f);
+    b3d_clear();
+    b3d_reset();
+
+    /* Render a visible front-facing triangle - should return true */
+    /* This is the same setup as api_render_ascii which we know works */
+    b3d_rotate_y(0.5f);
+    b3d_rotate_x(0.3f);
+    bool result = b3d_triangle(-0.5f, -0.5f, -0.5f, -0.5f, 0.5f, -0.5f, 0.5f,
+                               0.5f, -0.5f, 0xfcd0a1);
+    ASSERT(result == true);
+
+    free(pixels);
+    free(depth);
+    return 1;
+}
+
+/* Test degenerate triangle handling */
+TEST(api_degenerate_triangles)
+{
+    const int width = 32, height = 32;
+    uint32_t *pixels =
+        malloc((size_t) width * (size_t) height * sizeof(uint32_t));
+    b3d_depth_t *depth =
+        malloc((size_t) width * (size_t) height * sizeof(b3d_depth_t));
+
+    ASSERT(pixels);
+    ASSERT(depth);
+
+    bool init_ok = b3d_init(pixels, depth, width, height, 65.0f);
+    ASSERT(init_ok);
+    b3d_set_camera(0.0f, 0.0f, -3.0f, 0.0f, 0.0f, 0.0f);
+    b3d_clear();
+    b3d_reset();
+
+    /* Test that degenerate triangles are handled gracefully (no crash).
+     * The specific return value depends on pipeline stages - we just verify
+     * the function doesn't crash and produces consistent behavior.
+     */
+
+    /* Collinear points (line) - minimal area, handled by rasterizer */
+    (void) b3d_triangle(0.0f, 0.0f, 0.5f, 0.5f, 0.0f, 0.5f, 1.0f, 0.0f, 0.5f,
+                        0xffffff);
+
+    /* All same point - zero area triangle */
+    (void) b3d_triangle(0.0f, 0.0f, 0.5f, 0.0f, 0.0f, 0.5f, 0.0f, 0.0f, 0.5f,
+                        0xffffff);
+
+    /* Verify no pixels were written - check all pixels for robustness */
+    const size_t pixel_count = (size_t) width * (size_t) height;
+    size_t non_zero = 0;
+    for (size_t i = 0; i < pixel_count; i++) {
+        if (pixels[i] != 0)
+            non_zero++;
+    }
+    /* Degenerate triangles should produce no pixel output */
+    ASSERT(non_zero == 0);
+
+    free(pixels);
+    free(depth);
+    return 1;
+}
+
+/* Test near plane clipping */
+TEST(api_near_plane_clip)
+{
+    const int width = 64, height = 64;
+    uint32_t *pixels =
+        malloc((size_t) width * (size_t) height * sizeof(uint32_t));
+    b3d_depth_t *depth =
+        malloc((size_t) width * (size_t) height * sizeof(b3d_depth_t));
+
+    ASSERT(pixels);
+    ASSERT(depth);
+
+    bool init_ok = b3d_init(pixels, depth, width, height, 65.0f);
+    ASSERT(init_ok);
+    b3d_set_camera(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    b3d_clear();
+    b3d_reset();
+
+    const size_t pixel_count = (size_t) width * (size_t) height;
+
+    /* Test that triangles partially behind near plane are clipped gracefully.
+     * The near plane in view space is at z = 0.1.
+     * We render a triangle and verify no crash occurs.
+     */
+
+    /* First, render a fully visible triangle as baseline */
+    bool result1 = b3d_triangle(-0.5f, -0.5f, 0.5f, 0.0f, 0.5f, 0.5f, 0.5f,
+                                -0.5f, 0.5f, 0x00ff00);
+
+    /* Count pixels after first triangle */
+    size_t pixels_after_first = 0;
+    for (size_t i = 0; i < pixel_count; i++) {
+        if (pixels[i] != 0)
+            pixels_after_first++;
+    }
+
+    ASSERT(result1 == true);
+    /* Verify at least some pixels were rendered */
+    ASSERT(pixels_after_first > 0);
+
+    /* Now render a triangle fully behind the near plane: it should be culled
+     * and produce no pixel output.
+     */
+    b3d_clear();
+    bool clipped = b3d_triangle(-0.5f, -0.5f, 0.05f, 0.0f, 0.5f, 0.05f, 0.5f,
+                                -0.5f, 0.05f, 0xff0000);
+    size_t pixels_after_clipped = 0;
+    for (size_t i = 0; i < pixel_count; i++) {
+        if (pixels[i] != 0)
+            pixels_after_clipped++;
+    }
+    ASSERT(clipped == false);
+    ASSERT(pixels_after_clipped == 0);
+
+    /* Triangle straddling near plane: should be clipped but still render. */
+    b3d_clear();
+    bool clipped_visible = b3d_triangle(-0.5f, -0.5f, 0.05f, 0.0f, 0.5f, 0.2f,
+                                        0.5f, -0.5f, 0.2f, 0x0000ff);
+    size_t pixels_after_clip = 0;
+    for (size_t i = 0; i < pixel_count; i++) {
+        if (pixels[i] != 0)
+            pixels_after_clip++;
+    }
+    ASSERT(clipped_visible == true);
+    ASSERT(pixels_after_clip > 0);
+
+    free(pixels);
+    free(depth);
+    return 1;
+}
+
+/* Test screen projection with various positions */
+TEST(api_to_screen_extended)
+{
+    const int width = 64, height = 64;
+    uint32_t *pixels =
+        malloc((size_t) width * (size_t) height * sizeof(uint32_t));
+    b3d_depth_t *depth =
+        malloc((size_t) width * (size_t) height * sizeof(b3d_depth_t));
+
+    ASSERT(pixels);
+    ASSERT(depth);
+
+    b3d_init(pixels, depth, width, height, 65.0f);
+    b3d_set_camera(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    b3d_clear();
+
+    int sx, sy;
+
+    /* Point directly in front - should project to center */
+    int result = b3d_to_screen(0.0f, 0.0f, 1.0f, &sx, &sy);
+    ASSERT(result == 1);
+    ASSERT(sx >= width / 2 - 2 && sx <= width / 2 + 2);
+    ASSERT(sy >= height / 2 - 2 && sy <= height / 2 + 2);
+
+    /* Point to the right - should project to right side */
+    result = b3d_to_screen(1.0f, 0.0f, 1.0f, &sx, &sy);
+    ASSERT(result == 1);
+    ASSERT(sx > width / 2);
+
+    /* Point above - should project to upper half (y inverted in screen coords)
+     */
+    result = b3d_to_screen(0.0f, 1.0f, 1.0f, &sx, &sy);
+    ASSERT(result == 1);
+    ASSERT(sy < height / 2);
+
+    /* Point behind camera - should fail */
+    result = b3d_to_screen(0.0f, 0.0f, -1.0f, &sx, &sy);
+    ASSERT(result == 0);
+
+    free(pixels);
+    free(depth);
+    return 1;
+}
+
+/* Test b3d_init validation */
+TEST(api_init_validation)
+{
+    const int width = 32, height = 32;
+    uint32_t *pixels =
+        malloc((size_t) width * (size_t) height * sizeof(uint32_t));
+    b3d_depth_t *depth =
+        malloc((size_t) width * (size_t) height * sizeof(b3d_depth_t));
+
+    /* Valid initialization */
+    bool result = b3d_init(pixels, depth, width, height, 65.0f);
+    ASSERT(result == true);
+
+    /* NULL pixel buffer should fail */
+    result = b3d_init(NULL, depth, width, height, 65.0f);
+    ASSERT(result == false);
+
+    /* NULL depth buffer should fail */
+    result = b3d_init(pixels, NULL, width, height, 65.0f);
+    ASSERT(result == false);
+
+    /* Zero width should fail */
+    result = b3d_init(pixels, depth, 0, height, 65.0f);
+    ASSERT(result == false);
+
+    /* Zero height should fail */
+    result = b3d_init(pixels, depth, width, 0, 65.0f);
+    ASSERT(result == false);
+
+    /* Negative dimensions should fail */
+    result = b3d_init(pixels, depth, -1, height, 65.0f);
+    ASSERT(result == false);
+
+    free(pixels);
+    free(depth);
+    return 1;
+}
+
+/* Test depth buffer functionality */
+TEST(api_depth_buffer)
+{
+    const int width = 32, height = 32;
+    uint32_t *pixels =
+        malloc((size_t) width * (size_t) height * sizeof(uint32_t));
+    b3d_depth_t *depth =
+        malloc((size_t) width * (size_t) height * sizeof(b3d_depth_t));
+
+    ASSERT(pixels);
+    ASSERT(depth);
+
+    bool init_ok = b3d_init(pixels, depth, width, height, 65.0f);
+    ASSERT(init_ok);
+    b3d_set_camera(0.0f, 0.0f, -5.0f, 0.0f, 0.0f, 0.0f);
+    b3d_clear();
+    b3d_reset();
+
+    /* With camera at z=-5, objects at higher z are FARTHER away:
+     * - z=0.5 is 5.5 units from camera (FAR)
+     * - z=0.0 is 5.0 units from camera (NEAR)
+     * Use CCW winding (v0->v2->v1) for front-facing triangles from camera view.
+     */
+
+    /* Render a large green triangle far from camera (z=0.5) */
+    uint32_t far_color = 0x00ff00;
+    b3d_triangle(-1.0f, -1.0f, 0.5f, 0.0f, 1.0f, 0.5f, 1.0f, -1.0f, 0.5f,
+                 far_color);
+
+    /* Check that center pixel is the far color */
+    size_t center =
+        (size_t) (height / 2) * (size_t) width + (size_t) (width / 2);
+    uint32_t center_before = pixels[center];
+    ASSERT(center_before == far_color);
+
+    /* Render a smaller red triangle closer to camera (z=0.0) */
+    uint32_t near_color = 0xff0000;
+    b3d_triangle(-0.5f, -0.5f, 0.0f, 0.0f, 0.5f, 0.0f, 0.5f, -0.5f, 0.0f,
+                 near_color);
+
+    /* Center pixel should now be the near color (closer triangle wins) */
+    uint32_t center_after = pixels[center];
+    ASSERT(center_after == near_color);
+
+    /* Render in reverse order: near then far */
+    b3d_clear();
+
+    /* Render small red triangle first (closer, z=0.0) */
+    b3d_triangle(-0.5f, -0.5f, 0.0f, 0.0f, 0.5f, 0.0f, 0.5f, -0.5f, 0.0f,
+                 near_color);
+
+    /* Render large green triangle second (farther, z=0.5) */
+    b3d_triangle(-1.0f, -1.0f, 0.5f, 0.0f, 1.0f, 0.5f, 1.0f, -1.0f, 0.5f,
+                 far_color);
+
+    /* Center pixel should STILL be the near color due to depth test */
+    uint32_t center_reverse = pixels[center];
+    ASSERT(center_reverse == near_color);
+
+    free(pixels);
+    free(depth);
     return 1;
 }
 
@@ -462,10 +806,12 @@ int main(void)
 
     SECTION_BEGIN("API Initialization");
     RUN_TEST(api_init);
+    RUN_TEST(api_init_validation);
     SECTION_END();
 
     SECTION_BEGIN("API Transformations");
     RUN_TEST(api_transform);
+    RUN_TEST(api_set_model_matrix);
     SECTION_END();
 
     SECTION_BEGIN("API Camera");
@@ -476,16 +822,21 @@ int main(void)
     RUN_TEST(api_matrix_stack);
     SECTION_END();
 
-    SECTION_BEGIN("API Rendering (ASCII)");
+    SECTION_BEGIN("API Rendering");
     RUN_TEST(api_render_ascii);
+    RUN_TEST(api_triangle_return);
+    RUN_TEST(api_degenerate_triangles);
+    RUN_TEST(api_depth_buffer);
+    SECTION_END();
+
+    SECTION_BEGIN("API Clipping");
+    RUN_TEST(api_near_plane_clip);
+    RUN_TEST(api_clip_drop_count);
     SECTION_END();
 
     SECTION_BEGIN("API Screen Projection");
     RUN_TEST(api_to_screen);
-    SECTION_END();
-
-    SECTION_BEGIN("API Clip Count");
-    RUN_TEST(api_clip_drop_count);
+    RUN_TEST(api_to_screen_extended);
     SECTION_END();
 
     SECTION_BEGIN("API Buffer Size");

@@ -226,8 +226,7 @@ static void raster_half(int y_start,
         b3d_scalar_t depth_start = sz;
         b3d_scalar_t depth_step = B3D_FP_DIV(ez - sz, dx);
 
-        int start = B3D_FP_TO_INT(sx);
-        int end = B3D_FP_TO_INT(ex);
+        int start = B3D_FP_TO_INT(sx), end = B3D_FP_TO_INT(ex);
         start = b3d_clamp_int(start, 0, b3d_width);
         end = b3d_clamp_int(end, 0, b3d_width);
         if (start >= end) {
