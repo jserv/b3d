@@ -18,8 +18,9 @@ derived from [bootleg3D](https://github.com/malespiaut/bootleg3d).
 ```
 
 Compile-time options:
-- `B3D_NO_CULLING` — disable back-face culling
-- `B3D_DEPTH_16BIT` — use 16-bit depth buffer (halves memory)
+- `B3D_DEPTH_32BIT` - Default, 32-bit fixed-point depth (16.16)
+- `B3D_DEPTH_16BIT` - Use 16-bit depth buffer
+- `B3D_FLOAT_POINT` - Use floating-point math for comparisons
 
 ## Examples
 
@@ -31,8 +32,8 @@ Compile-time options:
 | terrain | Animated sine/cosine heightmap |
 | donut | Torus with directional lighting |
 | lena3d | Image rendered as 3D heightfield |
-| ascii | Terminal-only rotating cube |
 
+Build with `make check` to validate B3D implementation.
 Build with `make all` (requires SDL2). Run headlessly with `--snapshot=PATH`.
 
 ## API
