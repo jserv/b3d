@@ -59,6 +59,19 @@ static int section_total = 0;
 
 #define ASSERT_NEAR(a, b, eps) ASSERT(fabsf((float) (a) - (float) (b)) < (eps))
 
+/* Test helper: check if matrix is identity */
+static inline int b3d_mat_is_identity(b3d_mat_t m)
+{
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 4; j++) {
+            float expected = (i == j) ? 1.0f : 0.0f;
+            if (fabsf(m.m[i][j] - expected) > 0.0001f)
+                return 0;
+        }
+    }
+    return 1;
+}
+
 /*
  * Fixed-point conversion tests
  */

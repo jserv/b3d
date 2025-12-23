@@ -29,8 +29,14 @@ ASSETS_DIR := assets
 LIB_SRC := $(SRC_DIR)/b3d.c
 LIB_OBJ := $(SRC_DIR)/b3d.o
 
-# Library dependencies
-LIB_DEPS := $(SRC_DIR)/math-toolkit.h $(INCLUDE_DIR)/b3d.h
+# Library dependencies (math-gen.inc is auto-generated from math.dsl)
+LIB_DEPS := $(SRC_DIR)/math-toolkit.h $(INCLUDE_DIR)/b3d.h $(SRC_DIR)/math-gen.inc
+
+# DSL code generator
+MATH_DSL := $(SRC_DIR)/math.dsl
+MATH_GEN := scripts/gen-math.py
+MATH_GEN_H := $(SRC_DIR)/math-gen.inc
+MATH_GEN_TEST_H := $(SRC_DIR)/math_gen_test.h
 
 # Common include path
 INCLUDES := -I$(INCLUDE_DIR)

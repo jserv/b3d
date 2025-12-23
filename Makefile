@@ -27,13 +27,11 @@ $(LIB_OBJ): $(LIB_SRC) $(LIB_DEPS)
 
 # Clean build artifacts (all possible examples, regardless of config)
 clean:
-	$(VECHO) "  CLEAN"
-	$(Q)rm -f $(ALL_EXAMPLES_CLEAN) $(LIB_OBJ) $(TESTS) $(BENCHMARKS)
+	$(Q)rm -f $(ALL_EXAMPLES_CLEAN) $(LIB_OBJ) $(TESTS) $(BENCHMARKS) tests/test-gen $(MATH_GEN_TEST_H)
 
-# Clean everything including generated assets
-cleanall: clean
-	$(VECHO) "  CLEANALL"
-	$(Q)rm -f $(ASSETS_DIR)/*.png
+# Clean everything including generated source files
+distclean: cleanall
+	$(Q)rm -f src/math-gen.inc
 
 # Rebuild everything
 rebuild: clean all
@@ -80,4 +78,25 @@ bench: $(BENCHMARKS)
 # Run all tests (unit + benchmarks)
 test-all: check bench
 
-.PHONY: all clean cleanall rebuild config check bench test-all $(BUILD_TARGETS) $(RUN_TARGETS)
+# Code generation for dual float/fixed-point math
+generate: $(MATH_GEN_H)
+
+$(MATH_GEN_H): $(MATH_DSL) $(MATH_GEN)
+	$(VECHO) "  GEN\t$@"
+	$(Q)python3 $(MATH_GEN) --dsl $(MATH_DSL) -o $@
+
+# Test version with _gen suffix to avoid conflicts with existing functions
+$(MATH_GEN_TEST_H): $(MATH_DSL) $(MATH_GEN)
+	$(VECHO) "  GEN\t$@ (test)"
+	$(Q)python3 $(MATH_GEN) --dsl $(MATH_DSL) --suffix _gen -o $@
+
+# Verify generated code compiles and produces correct results
+tests/test-gen: tests/test-gen.c $(MATH_GEN_TEST_H) $(LIB_DEPS)
+	$(VECHO) "  CC\t$@"
+	$(Q)$(CC) $(CFLAGS) -DB3D_FLOAT_POINT $(INCLUDES) -Isrc $< -o $@ $(LIBS)
+
+check-gen: tests/test-gen
+	$(VECHO) "  TEST\tRunning generated code tests"
+	$(Q)./tests/test-gen
+
+.PHONY: all clean cleanall rebuild config check bench test-all generate check-gen $(BUILD_TARGETS) $(RUN_TARGETS)
