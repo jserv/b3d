@@ -99,4 +99,9 @@ check-gen: tests/test-gen
 	$(VECHO) "  TEST\tRunning generated code tests"
 	$(Q)./tests/test-gen
 
-.PHONY: all clean cleanall rebuild config check bench test-all generate check-gen $(BUILD_TARGETS) $(RUN_TARGETS)
+# Snapshot generation (outputs to examples/*.png)
+update-snapshots: $(ALL_EXAMPLES)
+	$(VECHO) "  GEN\tGenerating snapshots"
+	$(Q)./scripts/gen-snapshots.sh $(SDL2_EXAMPLES_ALL)
+
+.PHONY: all clean cleanall rebuild config check bench test-all generate check-gen update-snapshots $(BUILD_TARGETS) $(RUN_TARGETS)
