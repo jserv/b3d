@@ -58,6 +58,7 @@ __pycache__
 
 # project
 src/math-gen.inc
+ball
 cubes
 donut
 fps

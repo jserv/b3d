@@ -51,6 +51,7 @@ Compile-time options:
 
 | Example | Description |
 |---------|-------------|
+| ball | Bouncing ball demo |
 | cubes | Benchmark: adds cubes until ~60 fps |
 | obj | OBJ viewer with auto-centering |
 | fps | First-person treasure hunt |
