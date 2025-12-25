@@ -180,6 +180,39 @@ void b3d_get_view_matrix(float out[16]);
  */
 void b3d_get_proj_matrix(float out[16]);
 
+/* Lighting
+ *
+ * Coordinate space: Light direction and triangle normals are both expected
+ * in MODEL SPACE. Lighting is computed before model-view transformation,
+ * so shading rotates with the object (classic glxgears style).
+ */
+
+/* Set light direction (auto-normalized).
+ * @x, @y, @z: light direction vector components (model space)
+ *
+ * Zero-length and NaN/INF vectors are rejected (previous direction kept).
+ * Default: (0, 0, 1) pointing toward +Z.
+ */
+void b3d_set_light_direction(float x, float y, float z);
+
+/* Get current light direction (normalized).
+ * @x, @y, @z: output pointers (NULL-safe)
+ */
+void b3d_get_light_direction(float *x, float *y, float *z);
+
+/* Set ambient light level.
+ * @ambient: ambient intensity clamped to [0, 1]
+ *
+ * NaN/INF values are rejected (previous level kept).
+ * Default: 0.2 (20% ambient).
+ */
+void b3d_set_ambient(float ambient);
+
+/* Get current ambient light level.
+ * Returns ambient intensity in [0, 1].
+ */
+float b3d_get_ambient(void);
+
 /* Rendering */
 
 /* Render a triangle.
@@ -189,6 +222,21 @@ void b3d_get_proj_matrix(float out[16]);
  * Returns true if rendered, false if culled/clipped away.
  */
 bool b3d_triangle(const b3d_tri_t *tri, uint32_t c);
+
+/* Render a lit triangle with surface normal.
+ * @tri:        pointer to triangle with 3 vertices
+ * @nx, @ny, @nz: surface normal in model space (will be normalized)
+ * @base_color: base color in 0xRRGGBB format
+ *
+ * Uses two-sided diffuse lighting with ambient. Lighting is computed in
+ * model space before transformation (shading rotates with the object).
+ * Returns true if rendered, false if culled/clipped away.
+ */
+bool b3d_triangle_lit(const b3d_tri_t *tri,
+                      float nx,
+                      float ny,
+                      float nz,
+                      uint32_t base_color);
 
 /* Utility functions */
 

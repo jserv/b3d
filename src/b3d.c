@@ -34,6 +34,10 @@ static bool b3d_model_view_dirty = true;
 /* Debug counters */
 static size_t b3d_clip_drop_count = 0;
 
+/* Lighting state */
+static b3d_vec_t b3d_light_dir = {0.0f, 0.0f, 1.0f, 0.0f}; /* Default: +Z */
+static float b3d_ambient = 0.2f;                           /* Default: 20% */
+
 /* Cached screen-space clipping planes (updated when resolution changes) */
 static b3d_vec_t b3d_screen_planes[4][2];
 static int b3d_planes_cached_w = 0, b3d_planes_cached_h = 0;
@@ -707,4 +711,76 @@ int b3d_get_width(void)
 int b3d_get_height(void)
 {
     return b3d_height;
+}
+
+void b3d_set_light_direction(float x, float y, float z)
+{
+    /* Reject NaN/INF inputs */
+    if (!isfinite(x) || !isfinite(y) || !isfinite(z))
+        return;
+    float len_sq = x * x + y * y + z * z;
+    if (len_sq < B3D_EPSILON)
+        return; /* Reject zero-length, keep previous direction */
+    float inv_len = 1.0f / b3d_sqrtf(len_sq);
+    b3d_light_dir = (b3d_vec_t) {x * inv_len, y * inv_len, z * inv_len, 0.0f};
+}
+
+void b3d_get_light_direction(float *x, float *y, float *z)
+{
+    if (x)
+        *x = b3d_light_dir.x;
+    if (y)
+        *y = b3d_light_dir.y;
+    if (z)
+        *z = b3d_light_dir.z;
+}
+
+float b3d_get_ambient(void)
+{
+    return b3d_ambient;
+}
+
+void b3d_set_ambient(float ambient)
+{
+    /* Reject NaN/INF inputs */
+    if (!isfinite(ambient))
+        return;
+    if (ambient < 0.0f)
+        ambient = 0.0f;
+    if (ambient > 1.0f)
+        ambient = 1.0f;
+    b3d_ambient = ambient;
+}
+
+static inline uint32_t b3d_shade_color(uint32_t c, float intensity)
+{
+    if (intensity < 0.0f)
+        intensity = 0.0f;
+    if (intensity > 1.0f)
+        intensity = 1.0f;
+    int r = (int) (((c >> 16) & 0xFF) * intensity);
+    int g = (int) (((c >> 8) & 0xFF) * intensity);
+    int b = (int) ((c & 0xFF) * intensity);
+    return (uint32_t) ((r << 16) | (g << 8) | b);
+}
+
+bool b3d_triangle_lit(const b3d_tri_t *tri,
+                      float nx,
+                      float ny,
+                      float nz,
+                      uint32_t base_color)
+{
+    /* Normalize the surface normal */
+    b3d_vec_t n = {nx, ny, nz, 0.0f};
+    n = b3d_vec_norm(n);
+
+    /* Diffuse lighting with two-sided shading (abs of dot product) */
+    float dot = b3d_vec_dot(n, b3d_light_dir);
+    if (dot < 0.0f)
+        dot = -dot;
+
+    float intensity = b3d_ambient + (1.0f - b3d_ambient) * dot;
+    uint32_t shaded = b3d_shade_color(base_color, intensity);
+
+    return b3d_triangle(tri, shaded);
 }

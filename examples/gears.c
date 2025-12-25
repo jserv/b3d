@@ -20,42 +20,6 @@
 /* Convert degrees to radians */
 #define DEG2RAD(x) ((x) * M_PI / 180.0f)
 
-/* Light direction - fixed in model space for consistent lighting.
- * Points toward viewer from upper-right, matching glxgears appearance. */
-static const float light_dir[3] = {0.408248f, 0.408248f, 0.816497f};
-
-/* Apply lighting to compute shaded color
- * @base_color: RGB color in 0xRRGGBB format
- * @nx, @ny, @nz: surface normal (will be normalized)
- */
-static uint32_t shade(uint32_t base_color, float nx, float ny, float nz)
-{
-    /* Normalize normal */
-    float nl = b3d_sqrtf(nx * nx + ny * ny + nz * nz);
-    if (nl > 0) {
-        nx /= nl;
-        ny /= nl;
-        nz /= nl;
-    }
-
-    /* Diffuse lighting with ambient.
-     * Use absolute value for two-sided lighting since normals are in model
-     * space while gears rotate, causing faces to alternate orientation. */
-    float dot = nx * light_dir[0] + ny * light_dir[1] + nz * light_dir[2];
-    if (dot < 0.0f)
-        dot = -dot;
-
-    float intensity = 0.2f + 0.8f * dot;
-    if (intensity > 1.0f)
-        intensity = 1.0f;
-
-    int r = (int) (((base_color >> 16) & 0xff) * intensity);
-    int g = (int) (((base_color >> 8) & 0xff) * intensity);
-    int b = (int) ((base_color & 0xff) * intensity);
-
-    return (uint32_t) ((r << 16) | (g << 8) | b);
-}
-
 /* Draw a gear
  * @inner_radius: radius of hole at center
  * @outer_radius: radius at center of teeth
@@ -79,8 +43,7 @@ static void gear(float inner_radius,
 
     float da = 2.0f * M_PI / (float) teeth / 4.0f;
 
-    /* Draw front face (ring + tooth fronts) */
-    uint32_t front_color = shade(color, 0.0f, 0.0f, 1.0f);
+    /* Draw front face (ring + tooth fronts) - normal points +Z */
     for (int i = 0; i < teeth; i++) {
         float angle = (float) i * 2.0f * M_PI / (float) teeth;
 
@@ -97,37 +60,36 @@ static void gear(float inner_radius,
         float ce[] = {c1, c2, c3, c4};
         float se[] = {s1, s2, s3, s4};
         for (int j = 0; j < 4; ++j) {
-            b3d_triangle(&(b3d_tri_t) {{
-                             {r0 * cs[j], r0 * ss[j], width * 0.5f},
-                             {r1 * cs[j], r1 * ss[j], width * 0.5f},
-                             {r1 * ce[j], r1 * se[j], width * 0.5f},
-                         }},
-                         front_color);
-            b3d_triangle(&(b3d_tri_t) {{
-                             {r0 * cs[j], r0 * ss[j], width * 0.5f},
-                             {r1 * ce[j], r1 * se[j], width * 0.5f},
-                             {r0 * ce[j], r0 * se[j], width * 0.5f},
-                         }},
-                         front_color);
+            b3d_triangle_lit(&(b3d_tri_t) {{
+                                 {r0 * cs[j], r0 * ss[j], width * 0.5f},
+                                 {r1 * cs[j], r1 * ss[j], width * 0.5f},
+                                 {r1 * ce[j], r1 * se[j], width * 0.5f},
+                             }},
+                             0.0f, 0.0f, 1.0f, color);
+            b3d_triangle_lit(&(b3d_tri_t) {{
+                                 {r0 * cs[j], r0 * ss[j], width * 0.5f},
+                                 {r1 * ce[j], r1 * se[j], width * 0.5f},
+                                 {r0 * ce[j], r0 * se[j], width * 0.5f},
+                             }},
+                             0.0f, 0.0f, 1.0f, color);
         }
 
         /* Front sides of teeth */
-        b3d_triangle(&(b3d_tri_t) {{
-                         {r1 * c0, r1 * s0, width * 0.5f},
-                         {r2 * c1, r2 * s1, width * 0.5f},
-                         {r2 * c2, r2 * s2, width * 0.5f},
-                     }},
-                     front_color);
-        b3d_triangle(&(b3d_tri_t) {{
-                         {r1 * c0, r1 * s0, width * 0.5f},
-                         {r2 * c2, r2 * s2, width * 0.5f},
-                         {r1 * c3, r1 * s3, width * 0.5f},
-                     }},
-                     front_color);
+        b3d_triangle_lit(&(b3d_tri_t) {{
+                             {r1 * c0, r1 * s0, width * 0.5f},
+                             {r2 * c1, r2 * s1, width * 0.5f},
+                             {r2 * c2, r2 * s2, width * 0.5f},
+                         }},
+                         0.0f, 0.0f, 1.0f, color);
+        b3d_triangle_lit(&(b3d_tri_t) {{
+                             {r1 * c0, r1 * s0, width * 0.5f},
+                             {r2 * c2, r2 * s2, width * 0.5f},
+                             {r1 * c3, r1 * s3, width * 0.5f},
+                         }},
+                         0.0f, 0.0f, 1.0f, color);
     }
 
-    /* Draw back face */
-    uint32_t back_color = shade(color, 0.0f, 0.0f, -1.0f);
+    /* Draw back face - normal points -Z */
     for (int i = 0; i < teeth; i++) {
         float angle = (float) i * 2.0f * M_PI / (float) teeth;
 
@@ -144,33 +106,33 @@ static void gear(float inner_radius,
         float ce[] = {c0, c1, c2, c3};
         float se[] = {s0, s1, s2, s3};
         for (int j = 0; j < 4; ++j) {
-            b3d_triangle(&(b3d_tri_t) {{
-                             {r1 * cs[j], r1 * ss[j], -width * 0.5f},
-                             {r1 * ce[j], r1 * se[j], -width * 0.5f},
-                             {r0 * ce[j], r0 * se[j], -width * 0.5f},
-                         }},
-                         back_color);
-            b3d_triangle(&(b3d_tri_t) {{
-                             {r0 * cs[j], r0 * ss[j], -width * 0.5f},
-                             {r1 * cs[j], r1 * ss[j], -width * 0.5f},
-                             {r0 * ce[j], r0 * se[j], -width * 0.5f},
-                         }},
-                         back_color);
+            b3d_triangle_lit(&(b3d_tri_t) {{
+                                 {r1 * cs[j], r1 * ss[j], -width * 0.5f},
+                                 {r1 * ce[j], r1 * se[j], -width * 0.5f},
+                                 {r0 * ce[j], r0 * se[j], -width * 0.5f},
+                             }},
+                             0.0f, 0.0f, -1.0f, color);
+            b3d_triangle_lit(&(b3d_tri_t) {{
+                                 {r0 * cs[j], r0 * ss[j], -width * 0.5f},
+                                 {r1 * cs[j], r1 * ss[j], -width * 0.5f},
+                                 {r0 * ce[j], r0 * se[j], -width * 0.5f},
+                             }},
+                             0.0f, 0.0f, -1.0f, color);
         }
 
         /* Back sides of teeth - reverse winding */
-        b3d_triangle(&(b3d_tri_t) {{
-                         {r2 * c1, r2 * s1, -width * 0.5f},
-                         {r1 * c0, r1 * s0, -width * 0.5f},
-                         {r1 * c3, r1 * s3, -width * 0.5f},
-                     }},
-                     back_color);
-        b3d_triangle(&(b3d_tri_t) {{
-                         {r2 * c2, r2 * s2, -width * 0.5f},
-                         {r2 * c1, r2 * s1, -width * 0.5f},
-                         {r1 * c3, r1 * s3, -width * 0.5f},
-                     }},
-                     back_color);
+        b3d_triangle_lit(&(b3d_tri_t) {{
+                             {r2 * c1, r2 * s1, -width * 0.5f},
+                             {r1 * c0, r1 * s0, -width * 0.5f},
+                             {r1 * c3, r1 * s3, -width * 0.5f},
+                         }},
+                         0.0f, 0.0f, -1.0f, color);
+        b3d_triangle_lit(&(b3d_tri_t) {{
+                             {r2 * c2, r2 * s2, -width * 0.5f},
+                             {r2 * c1, r2 * s1, -width * 0.5f},
+                             {r1 * c3, r1 * s3, -width * 0.5f},
+                         }},
+                         0.0f, 0.0f, -1.0f, color);
     }
 
     /* Draw outward faces of teeth (lead edge, top, trail edge, valley) */
@@ -186,76 +148,77 @@ static void gear(float inner_radius,
 
         float hw = width * 0.5f;
         float u, v, len;
+        float nx, ny;
 
         /* Leading edge of tooth */
         u = r2 * c1 - r1 * c0;
         v = r2 * s1 - r1 * s0;
         len = b3d_sqrtf(u * u + v * v);
         if (len > 0.0f) {
-            uint32_t edge_color = shade(color, v / len, -u / len, 0.0f);
-            b3d_triangle(&(b3d_tri_t) {{
-                             {r1 * c0, r1 * s0, hw},
-                             {r1 * c0, r1 * s0, -hw},
-                             {r2 * c1, r2 * s1, -hw},
-                         }},
-                         edge_color);
-            b3d_triangle(&(b3d_tri_t) {{
-                             {r1 * c0, r1 * s0, hw},
-                             {r2 * c1, r2 * s1, -hw},
-                             {r2 * c1, r2 * s1, hw},
-                         }},
-                         edge_color);
+            nx = v / len;
+            ny = -u / len;
+            b3d_triangle_lit(&(b3d_tri_t) {{
+                                 {r1 * c0, r1 * s0, hw},
+                                 {r1 * c0, r1 * s0, -hw},
+                                 {r2 * c1, r2 * s1, -hw},
+                             }},
+                             nx, ny, 0.0f, color);
+            b3d_triangle_lit(&(b3d_tri_t) {{
+                                 {r1 * c0, r1 * s0, hw},
+                                 {r2 * c1, r2 * s1, -hw},
+                                 {r2 * c1, r2 * s1, hw},
+                             }},
+                             nx, ny, 0.0f, color);
         }
 
         /* Tooth top face */
         float s_top, c_top;
         b3d_sincosf(angle + 1.5f * da, &s_top, &c_top);
-        uint32_t top_color = shade(color, c_top, s_top, 0.0f);
-        b3d_triangle(&(b3d_tri_t) {{{r2 * c1, r2 * s1, hw},
-                                    {r2 * c1, r2 * s1, -hw},
-                                    {r2 * c2, r2 * s2, -hw}}},
-                     top_color);
-        b3d_triangle(&(b3d_tri_t) {{{r2 * c1, r2 * s1, hw},
-                                    {r2 * c2, r2 * s2, -hw},
-                                    {r2 * c2, r2 * s2, hw}}},
-                     top_color);
+        b3d_triangle_lit(&(b3d_tri_t) {{{r2 * c1, r2 * s1, hw},
+                                        {r2 * c1, r2 * s1, -hw},
+                                        {r2 * c2, r2 * s2, -hw}}},
+                         c_top, s_top, 0.0f, color);
+        b3d_triangle_lit(&(b3d_tri_t) {{{r2 * c1, r2 * s1, hw},
+                                        {r2 * c2, r2 * s2, -hw},
+                                        {r2 * c2, r2 * s2, hw}}},
+                         c_top, s_top, 0.0f, color);
 
         /* Trailing edge of tooth */
         u = r1 * c3 - r2 * c2;
         v = r1 * s3 - r2 * s2;
         len = b3d_sqrtf(u * u + v * v);
         if (len > 0.0f) {
-            uint32_t edge_color = shade(color, v / len, -u / len, 0.0f);
-            b3d_triangle(&(b3d_tri_t) {{
-                             {r2 * c2, r2 * s2, hw},
-                             {r2 * c2, r2 * s2, -hw},
-                             {r1 * c3, r1 * s3, -hw},
-                         }},
-                         edge_color);
-            b3d_triangle(&(b3d_tri_t) {{
-                             {r2 * c2, r2 * s2, hw},
-                             {r1 * c3, r1 * s3, -hw},
-                             {r1 * c3, r1 * s3, hw},
-                         }},
-                         edge_color);
+            nx = v / len;
+            ny = -u / len;
+            b3d_triangle_lit(&(b3d_tri_t) {{
+                                 {r2 * c2, r2 * s2, hw},
+                                 {r2 * c2, r2 * s2, -hw},
+                                 {r1 * c3, r1 * s3, -hw},
+                             }},
+                             nx, ny, 0.0f, color);
+            b3d_triangle_lit(&(b3d_tri_t) {{
+                                 {r2 * c2, r2 * s2, hw},
+                                 {r1 * c3, r1 * s3, -hw},
+                                 {r1 * c3, r1 * s3, hw},
+                             }},
+                             nx, ny, 0.0f, color);
         }
 
         /* Valley between teeth (outer rim at r1) */
         float s_rim, c_rim;
         b3d_sincosf(angle + 3.5f * da, &s_rim, &c_rim);
-        uint32_t rim_color = shade(color, c_rim, s_rim, 0.0f);
-        b3d_triangle(&(b3d_tri_t) {{
-                         {r1 * c3, r1 * s3, hw},
-                         {r1 * c3, r1 * s3, -hw},
-                         {r1 * c4, r1 * s4, -hw},
-                     }},
-                     rim_color);
-        b3d_triangle(&(b3d_tri_t) {{
-                         {r1 * c3, r1 * s3, hw},
-                         {r1 * c4, r1 * s4, -hw},
-                         {r1 * c4, r1 * s4, hw},
-                     }},
-                     rim_color);
+        b3d_triangle_lit(&(b3d_tri_t) {{
+                             {r1 * c3, r1 * s3, hw},
+                             {r1 * c3, r1 * s3, -hw},
+                             {r1 * c4, r1 * s4, -hw},
+                         }},
+                         c_rim, s_rim, 0.0f, color);
+        b3d_triangle_lit(&(b3d_tri_t) {{
+                             {r1 * c3, r1 * s3, hw},
+                             {r1 * c4, r1 * s4, -hw},
+                             {r1 * c4, r1 * s4, hw},
+                         }},
+                         c_rim, s_rim, 0.0f, color);
     }
 
     /* Draw inside radius cylinder */
@@ -269,28 +232,22 @@ static void gear(float inner_radius,
         b3d_sincosf(a1, &s1, &c1);
         float hw = width * 0.5f;
 
-        /* Normal points inward */
+        /* Normal points inward (average of two edge normals) */
         float nx = -(c0 + c1);
         float ny = -(s0 + s1);
-        float nl = b3d_sqrtf(nx * nx + ny * ny);
-        if (nl > 0.0f) {
-            nx /= nl;
-            ny /= nl;
-        }
-        uint32_t inner_color = shade(color, nx, ny, 0.0f);
 
-        b3d_triangle(&(b3d_tri_t) {{
-                         {r0 * c0, r0 * s0, -hw},
-                         {r0 * c0, r0 * s0, hw},
-                         {r0 * c1, r0 * s1, hw},
-                     }},
-                     inner_color);
-        b3d_triangle(&(b3d_tri_t) {{
-                         {r0 * c0, r0 * s0, -hw},
-                         {r0 * c1, r0 * s1, hw},
-                         {r0 * c1, r0 * s1, -hw},
-                     }},
-                     inner_color);
+        b3d_triangle_lit(&(b3d_tri_t) {{
+                             {r0 * c0, r0 * s0, -hw},
+                             {r0 * c0, r0 * s0, hw},
+                             {r0 * c1, r0 * s1, hw},
+                         }},
+                         nx, ny, 0.0f, color);
+        b3d_triangle_lit(&(b3d_tri_t) {{
+                             {r0 * c0, r0 * s0, -hw},
+                             {r0 * c1, r0 * s1, hw},
+                             {r0 * c1, r0 * s1, -hw},
+                         }},
+                         nx, ny, 0.0f, color);
     }
 }
 
@@ -316,6 +273,9 @@ static void render_frame(uint32_t *pixels,
     b3d_init(pixels, depth, width, height, 60.0f);
     b3d_set_camera(&(b3d_camera_t) {0.0f, 0.0f, -18.0f, 0.0f, 0.0f, 0.0f});
     b3d_clear();
+
+    /* Set light direction: normalized (1, 1, 2) - matches original glxgears */
+    b3d_set_light_direction(0.408248f, 0.408248f, 0.816497f);
 
     /* Apply view rotation */
     b3d_reset();

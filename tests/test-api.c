@@ -865,6 +865,179 @@ TEST(api_init_validation)
     return 1;
 }
 
+/* Test lighting API - direction setting and getting */
+TEST(api_lighting_direction)
+{
+    const int width = 32, height = 32;
+    uint32_t *pixels =
+        malloc((size_t) width * (size_t) height * sizeof(uint32_t));
+    b3d_depth_t *depth =
+        malloc((size_t) width * (size_t) height * sizeof(b3d_depth_t));
+
+    ASSERT(pixels);
+    ASSERT(depth);
+
+    bool init_ok = b3d_init(pixels, depth, width, height, 65.0f);
+    ASSERT(init_ok);
+
+    float x, y, z;
+
+    /* Test default light direction (0, 0, 1) toward +Z */
+    b3d_get_light_direction(&x, &y, &z);
+    ASSERT(fabsf(x - 0.0f) < 0.0001f);
+    ASSERT(fabsf(y - 0.0f) < 0.0001f);
+    ASSERT(fabsf(z - 1.0f) < 0.0001f);
+
+    /* Test setting a new direction (auto-normalized) */
+    b3d_set_light_direction(1.0f, 1.0f, 1.0f);
+    b3d_get_light_direction(&x, &y, &z);
+    float expected = 1.0f / sqrtf(3.0f); /* ~0.577 */
+    ASSERT(fabsf(x - expected) < 0.01f);
+    ASSERT(fabsf(y - expected) < 0.01f);
+    ASSERT(fabsf(z - expected) < 0.01f);
+
+    /* Test zero-length vector rejection (keeps previous value) */
+    b3d_set_light_direction(0.0f, 0.0f, 0.0f);
+    b3d_get_light_direction(&x, &y, &z);
+    ASSERT(fabsf(x - expected) < 0.01f); /* Should still be previous value */
+
+    /* Test NULL-safe getters */
+    b3d_get_light_direction(&x, NULL, NULL);
+    ASSERT(fabsf(x - expected) < 0.01f);
+    b3d_get_light_direction(NULL, &y, NULL);
+    ASSERT(fabsf(y - expected) < 0.01f);
+    b3d_get_light_direction(NULL, NULL, &z);
+    ASSERT(fabsf(z - expected) < 0.01f);
+
+    free(pixels);
+    free(depth);
+    return 1;
+}
+
+/* Test lighting API - ambient setting and getting */
+TEST(api_lighting_ambient)
+{
+    const int width = 32, height = 32;
+    uint32_t *pixels =
+        malloc((size_t) width * (size_t) height * sizeof(uint32_t));
+    b3d_depth_t *depth =
+        malloc((size_t) width * (size_t) height * sizeof(b3d_depth_t));
+
+    ASSERT(pixels);
+    ASSERT(depth);
+
+    bool init_ok = b3d_init(pixels, depth, width, height, 65.0f);
+    ASSERT(init_ok);
+
+    /* Test default ambient (0.2) */
+    float ambient = b3d_get_ambient();
+    ASSERT(fabsf(ambient - 0.2f) < 0.0001f);
+
+    /* Test setting ambient within range */
+    b3d_set_ambient(0.5f);
+    ambient = b3d_get_ambient();
+    ASSERT(fabsf(ambient - 0.5f) < 0.0001f);
+
+    /* Test clamping to 0 */
+    b3d_set_ambient(-0.5f);
+    ambient = b3d_get_ambient();
+    ASSERT(fabsf(ambient - 0.0f) < 0.0001f);
+
+    /* Test clamping to 1 */
+    b3d_set_ambient(1.5f);
+    ambient = b3d_get_ambient();
+    ASSERT(fabsf(ambient - 1.0f) < 0.0001f);
+
+    /* Test edge values */
+    b3d_set_ambient(0.0f);
+    ASSERT(fabsf(b3d_get_ambient() - 0.0f) < 0.0001f);
+    b3d_set_ambient(1.0f);
+    ASSERT(fabsf(b3d_get_ambient() - 1.0f) < 0.0001f);
+
+    free(pixels);
+    free(depth);
+    return 1;
+}
+
+/* Test lit triangle rendering */
+TEST(api_triangle_lit)
+{
+    const int width = 64, height = 64;
+    uint32_t *pixels =
+        malloc((size_t) width * (size_t) height * sizeof(uint32_t));
+    b3d_depth_t *depth =
+        malloc((size_t) width * (size_t) height * sizeof(b3d_depth_t));
+
+    ASSERT(pixels);
+    ASSERT(depth);
+
+    bool init_ok = b3d_init(pixels, depth, width, height, 65.0f);
+    ASSERT(init_ok);
+    b3d_set_camera(&(b3d_camera_t) {0.0f, 0.0f, -2.0f, 0.0f, 0.0f, 0.0f});
+    b3d_clear();
+    b3d_reset();
+
+    /* Set light direction toward +Z (facing the triangle) */
+    b3d_set_light_direction(0.0f, 0.0f, 1.0f);
+    b3d_set_ambient(0.2f);
+
+    /* Render a lit triangle facing the camera with normal toward -Z */
+    bool result =
+        b3d_triangle_lit(&(b3d_tri_t) {{
+                             {-0.5f, -0.5f, 0.0f},
+                             {0.0f, 0.5f, 0.0f},
+                             {0.5f, -0.5f, 0.0f},
+                         }},
+                         0.0f, 0.0f, -1.0f, /* Normal pointing toward camera */
+                         0xffffff);         /* White base color */
+    ASSERT(result == true);
+
+    /* Verify pixels were rendered */
+    const size_t pixel_count = (size_t) width * (size_t) height;
+    size_t non_zero = 0;
+    for (size_t i = 0; i < pixel_count; i++) {
+        if (pixels[i] != 0)
+            non_zero++;
+    }
+    ASSERT(non_zero > 0);
+
+    /* Verify shading occurred (pixels should not be pure white due to lighting)
+     * With two-sided lighting: |dot(-Z, +Z)| = 1, so intensity = 0.2 + 0.8*1 =
+     * 1 Actually full intensity, so pixels should be white (0xffffff)
+     */
+    size_t center =
+        (size_t) (height / 2) * (size_t) width + (size_t) (width / 2);
+    uint32_t center_color = pixels[center];
+    ASSERT(center_color == 0xffffff); /* Full intensity */
+
+    /* Test with perpendicular normal (should get ambient-only shading) */
+    b3d_clear();
+    b3d_set_light_direction(1.0f, 0.0f, 0.0f); /* Light from +X */
+    result = b3d_triangle_lit(
+        &(b3d_tri_t) {{
+            {-0.5f, -0.5f, 0.0f},
+            {0.0f, 0.5f, 0.0f},
+            {0.5f, -0.5f, 0.0f},
+        }},
+        0.0f, 0.0f, -1.0f, /* Normal toward -Z, perpendicular to light */
+        0xffffff);
+    ASSERT(result == true);
+
+    /* With perpendicular normal: dot = 0, intensity = ambient = 0.2 */
+    center_color = pixels[center];
+    /* 0.2 * 255 = 51 = 0x33, so expect ~0x333333 */
+    unsigned r = (center_color >> 16) & 0xff;
+    unsigned g = (center_color >> 8) & 0xff;
+    unsigned b = center_color & 0xff;
+    ASSERT(r >= 48 && r <= 56); /* ~0x33 with tolerance */
+    ASSERT(g >= 48 && g <= 56);
+    ASSERT(b >= 48 && b <= 56);
+
+    free(pixels);
+    free(depth);
+    return 1;
+}
+
 /* Test depth buffer functionality */
 TEST(api_depth_buffer)
 {
@@ -891,10 +1064,12 @@ TEST(api_depth_buffer)
 
     /* Render a large green triangle far from camera (z=0.5) */
     uint32_t far_color = 0x00ff00;
-    b3d_triangle(
-        &(b3d_tri_t) {
-            {{-1.0f, -1.0f, 0.5f}, {0.0f, 1.0f, 0.5f}, {1.0f, -1.0f, 0.5f}}},
-        far_color);
+    b3d_triangle(&(b3d_tri_t) {{
+                     {-1.0f, -1.0f, 0.5f},
+                     {0.0f, 1.0f, 0.5f},
+                     {1.0f, -1.0f, 0.5f},
+                 }},
+                 far_color);
 
     /* Check that center pixel is the far color */
     size_t center =
@@ -904,10 +1079,12 @@ TEST(api_depth_buffer)
 
     /* Render a smaller red triangle closer to camera (z=0.0) */
     uint32_t near_color = 0xff0000;
-    b3d_triangle(
-        &(b3d_tri_t) {
-            {{-0.5f, -0.5f, 0.0f}, {0.0f, 0.5f, 0.0f}, {0.5f, -0.5f, 0.0f}}},
-        near_color);
+    b3d_triangle(&(b3d_tri_t) {{
+                     {-0.5f, -0.5f, 0.0f},
+                     {0.0f, 0.5f, 0.0f},
+                     {0.5f, -0.5f, 0.0f},
+                 }},
+                 near_color);
 
     /* Center pixel should now be the near color (closer triangle wins) */
     uint32_t center_after = pixels[center];
@@ -917,16 +1094,20 @@ TEST(api_depth_buffer)
     b3d_clear();
 
     /* Render small red triangle first (closer, z=0.0) */
-    b3d_triangle(
-        &(b3d_tri_t) {
-            {{-0.5f, -0.5f, 0.0f}, {0.0f, 0.5f, 0.0f}, {0.5f, -0.5f, 0.0f}}},
-        near_color);
+    b3d_triangle(&(b3d_tri_t) {{
+                     {-0.5f, -0.5f, 0.0f},
+                     {0.0f, 0.5f, 0.0f},
+                     {0.5f, -0.5f, 0.0f},
+                 }},
+                 near_color);
 
     /* Render large green triangle second (farther, z=0.5) */
-    b3d_triangle(
-        &(b3d_tri_t) {
-            {{-1.0f, -1.0f, 0.5f}, {0.0f, 1.0f, 0.5f}, {1.0f, -1.0f, 0.5f}}},
-        far_color);
+    b3d_triangle(&(b3d_tri_t) {{
+                     {-1.0f, -1.0f, 0.5f},
+                     {0.0f, 1.0f, 0.5f},
+                     {1.0f, -1.0f, 0.5f},
+                 }},
+                 far_color);
 
     /* Center pixel should STILL be the near color due to depth test */
     uint32_t center_reverse = pixels[center];
@@ -969,6 +1150,12 @@ int main(void)
     RUN_TEST(api_triangle_return);
     RUN_TEST(api_degenerate_triangles);
     RUN_TEST(api_depth_buffer);
+    SECTION_END();
+
+    SECTION_BEGIN("API Lighting");
+    RUN_TEST(api_lighting_direction);
+    RUN_TEST(api_lighting_ambient);
+    RUN_TEST(api_triangle_lit);
     SECTION_END();
 
     SECTION_BEGIN("API Clipping");
