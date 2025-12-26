@@ -1,6 +1,6 @@
 # B3D Math DSL - I❤LA-Style Linear Algebra
 #
-# Mathematical notation that compiles to C and LaTeX.
+# Mathematical notation that compiles to C.
 # Supports both Unicode symbols and LaTeX-like ASCII escapes.
 #
 # Syntax:
