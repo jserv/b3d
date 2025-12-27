@@ -162,12 +162,11 @@ static inline int b3d_voxel_floori(b3d_scalar_t x)
     int i = (int) x;
     return (x < 0.0f && x != (float) i) ? i - 1 : i;
 #else
-    /* Fixed-point: extract integer part, adjust for negative */
-    int i = B3D_FP_TO_INT(x);
-    /* If there's a fractional part and value is negative, subtract 1 */
-    if (x < 0 && (x & ((1 << B3D_FP_BITS) - 1)) != 0)
-        return i - 1;
-    return i;
+    /* Fixed-point: arithmetic right shift floors toward -inf for both
+     * positive and negative values in two's complement representation.
+     * Examples: floor(1.5)=1, floor(-1.5)=-2, floor(-0.5)=-1
+     */
+    return B3D_FP_TO_INT(x);
 #endif
 }
 
@@ -186,12 +185,14 @@ static inline int b3d_voxel_ceili(b3d_scalar_t x)
     int i = (int) x;
     return (x > 0.0f && x != (float) i) ? i + 1 : i;
 #else
-    /* Fixed-point: extract integer part, adjust for positive with fraction */
+    /* Fixed-point: ceil(x) = floor(x) + 1 if x has fractional part.
+     * The fractional mask extracts bits below the decimal point.
+     * Works for both positive and negative values.
+     * Examples: ceil(1.5)=2, ceil(-1.5)=-1, ceil(2.0)=2
+     */
     int i = B3D_FP_TO_INT(x);
-    /* If there's a fractional part and value is positive, add 1 */
-    if (x > 0 && (x & ((1 << B3D_FP_BITS) - 1)) != 0)
-        return i + 1;
-    return i;
+    b3d_scalar_t frac_mask = (1 << B3D_FP_BITS) - 1;
+    return (x & frac_mask) ? i + 1 : i;
 #endif
 }
 
@@ -585,10 +586,29 @@ size_t b3d_voxelize(const float *triangles,
     if (out_voxels && max_voxels > 0)
         b3d_voxel_hash_init(&ht, hash_storage, B3D_VOXEL_HASH_SIZE);
 
+    /* Q15.16 representable range: approximately [-32768, +32767] */
+#ifndef B3D_FLOAT_POINT
+#define B3D_VOXEL_COORD_MAX 32767.0f
+#define B3D_VOXEL_COORD_MIN (-32768.0f)
+#endif
+
     /* Process each triangle */
     for (size_t ti = 0; ti < tri_count && !buffer_full; ti++) {
         b3d_voxel_stri_t tri;
         const float *tp = triangles + ti * 9;
+
+#ifndef B3D_FLOAT_POINT
+        /* Skip triangles with coordinates outside Q15.16 range to prevent
+         * overflow corruption. This limits voxelizable mesh size to ~32K units.
+         */
+        bool out_of_range = false;
+        for (int i = 0; i < 9 && !out_of_range; i++) {
+            if (tp[i] > B3D_VOXEL_COORD_MAX || tp[i] < B3D_VOXEL_COORD_MIN)
+                out_of_range = true;
+        }
+        if (out_of_range)
+            continue;
+#endif
 
         /* Convert triangle vertices to internal scalar type */
         tri.p[0] = (b3d_voxel_spos_t) {

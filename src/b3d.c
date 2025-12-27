@@ -38,6 +38,40 @@ static size_t b3d_clip_drop_count = 0;
 static b3d_vec_t b3d_light_dir = {0.0f, 0.0f, 1.0f, 0.0f}; /* Default: +Z */
 static float b3d_ambient = 0.2f;                           /* Default: 20% */
 
+/* Perspective-correct depth conversion constants.
+ * Converts interpolated 1/w to normalized depth [0, 1].
+ * Formula: depth = B3D_DEPTH_OFFSET - w_inv * B3D_DEPTH_SCALE
+ *
+ * Fixed-point considerations:
+ * - w_inv ranges from 1/far to 1/near (e.g., 0.01 to 10 for default planes)
+ * - In Q15.16: 10 = 655360, 0.01 = 655 - both fit comfortably
+ * - B3D_FP_MUL uses int64_t intermediate to prevent overflow
+ * - Result depth is in [0, B3D_FP_ONE] range
+ *
+ * Precision note: In Q15.16, near-plane depth may be ~0.0001 instead of
+ * exact 0 due to rounding in constant conversion. This is expected and
+ * does not affect z-buffer correctness since depth ordering is preserved.
+ */
+#define B3D_DEPTH_OFFSET \
+    (B3D_FAR_DISTANCE / (B3D_FAR_DISTANCE - B3D_NEAR_DISTANCE))
+#define B3D_DEPTH_SCALE                       \
+    ((B3D_NEAR_DISTANCE * B3D_FAR_DISTANCE) / \
+     (B3D_FAR_DISTANCE - B3D_NEAR_DISTANCE))
+
+/* Precomputed depth constants in scalar format (initialized on first use) */
+static b3d_scalar_t b3d_depth_offset_fp = 0;
+static b3d_scalar_t b3d_depth_scale_fp = 0;
+static bool b3d_depth_constants_valid = false;
+
+static inline void b3d_init_depth_constants(void)
+{
+    if (b3d_depth_constants_valid)
+        return;
+    b3d_depth_offset_fp = B3D_FLOAT_TO_FP((float) B3D_DEPTH_OFFSET);
+    b3d_depth_scale_fp = B3D_FLOAT_TO_FP((float) B3D_DEPTH_SCALE);
+    b3d_depth_constants_valid = true;
+}
+
 /* Cached screen-space clipping planes (updated when resolution changes) */
 static b3d_vec_t b3d_screen_planes[4][2];
 static int b3d_planes_cached_w = 0, b3d_planes_cached_h = 0;
@@ -178,26 +212,41 @@ static inline int b3d_clamp_int(int v, int lo, int hi)
     return v;
 }
 
-/* Pixel write macro for scanline unrolling */
-#define PUT_PIXEL(i)                     \
-    do {                                 \
-        if (d < b3d_depth_load(dp[i])) { \
-            dp[i] = b3d_depth_store(d);  \
-            pp[i] = c;                   \
-        }                                \
-        d = B3D_FP_ADD(d, depth_step);   \
+/* Pixel write macro for scanline unrolling.
+ * Uses perspective-correct depth: depth = offset - w_inv * scale.
+ * Expects: w = current 1/w, w_step = delta 1/w per pixel.
+ * Uses cached b3d_depth_offset_fp and b3d_depth_scale_fp.
+ * Clamps depth to [0, B3D_FP_ONE] for numerical stability.
+ */
+#define PUT_PIXEL(i)                                                 \
+    do {                                                             \
+        b3d_scalar_t d =                                             \
+            b3d_depth_offset_fp - B3D_FP_MUL(w, b3d_depth_scale_fp); \
+        if (d < 0)                                                   \
+            d = 0;                                                   \
+        else if (d > B3D_FP_ONE)                                     \
+            d = B3D_FP_ONE;                                          \
+        if (d < b3d_depth_load(dp[i])) {                             \
+            dp[i] = b3d_depth_store(d);                              \
+            pp[i] = c;                                               \
+        }                                                            \
+        w = B3D_FP_ADD(w, w_step);                                   \
     } while (0)
 
-/* Edge interpolation state for rasterizer */
+/* Edge interpolation state for rasterizer.
+ * Uses 1/w for perspective-correct depth interpolation.
+ */
 typedef struct {
-    b3d_scalar_t x, z;   /* start position */
-    b3d_scalar_t dx, dz; /* delta per scanline */
-    b3d_scalar_t t;      /* interpolation parameter [0, 1] */
-    b3d_scalar_t t_step; /* step per scanline */
+    b3d_scalar_t x, w_inv;   /* start position: x coord and 1/w */
+    b3d_scalar_t dx, dw_inv; /* delta per scanline */
+    b3d_scalar_t t;          /* interpolation parameter [0, 1] */
+    b3d_scalar_t t_step;     /* step per scanline */
 } raster_edge_t;
 
 /* Rasterize one half of a triangle (top or bottom).
- * Left/right edges interpolate from (x,z) along (dx,dz) with parameter t.
+ * Left/right edges interpolate x and 1/w with parameter t.
+ * Depth is computed per-pixel from interpolated 1/w for perspective
+ * correctness. Uses cached fixed-point depth constants.
  */
 static void raster_half(int y_start,
                         int y_end,
@@ -206,6 +255,7 @@ static void raster_half(int y_start,
                         uint32_t c)
 {
     b3d_scalar_t tmp = 0;
+
     for (int y = y_start; y < y_end; y++) {
         if (y < 0 || y >= b3d_height) {
             left->t += left->t_step;
@@ -213,12 +263,13 @@ static void raster_half(int y_start,
             continue;
         }
 
+        /* Interpolate x and 1/w along edges */
         b3d_scalar_t sx = left->x + B3D_FP_MUL(left->dx, left->t);
-        b3d_scalar_t sz = left->z + B3D_FP_MUL(left->dz, left->t);
+        b3d_scalar_t sw = left->w_inv + B3D_FP_MUL(left->dw_inv, left->t);
         b3d_scalar_t ex = right->x + B3D_FP_MUL(right->dx, right->t);
-        b3d_scalar_t ez = right->z + B3D_FP_MUL(right->dz, right->t);
+        b3d_scalar_t ew = right->w_inv + B3D_FP_MUL(right->dw_inv, right->t);
         if (sx > ex)
-            SWAP_SPAN(sx, sz, ex, ez, tmp);
+            SWAP_SPAN(sx, sw, ex, ew, tmp);
         b3d_scalar_t dx = ex - sx;
         if (dx < B3D_FP_DEGEN_THRESHOLD) {
             left->t += left->t_step;
@@ -226,8 +277,21 @@ static void raster_half(int y_start,
             continue;
         }
 
-        b3d_scalar_t depth_start = sz;
-        b3d_scalar_t depth_step = B3D_FP_DIV(ez - sz, dx);
+        /* Compute 1/w step per pixel for perspective-correct interpolation.
+         * Guard against overflow: if |dw|/dx ratio is too large, the result
+         * won't fit in int32_t. This happens on extremely thin spans with
+         * large depth range - skip these degenerate cases.
+         * Use int64_t to avoid overflow in the comparison itself.
+         */
+        b3d_scalar_t dw = ew - sw;
+        b3d_scalar_t dw_abs = dw < 0 ? -dw : dw;
+        /* Max ratio ~32 ensures w_step fits in int32_t with margin */
+        if ((int64_t) dw_abs > (int64_t) dx * 32) {
+            left->t += left->t_step;
+            right->t += right->t_step;
+            continue;
+        }
+        b3d_scalar_t w_step = B3D_FP_DIV(dw, dx);
 
         int start = B3D_FP_TO_INT(sx), end = B3D_FP_TO_INT(ex);
         start = b3d_clamp_int(start, 0, b3d_width);
@@ -238,8 +302,8 @@ static void raster_half(int y_start,
             continue;
         }
 
-        b3d_scalar_t d =
-            depth_start + B3D_FP_MUL(depth_step, B3D_INT_TO_FP(start) - sx);
+        /* Compute starting 1/w at first visible pixel */
+        b3d_scalar_t w = sw + B3D_FP_MUL(w_step, B3D_INT_TO_FP(start) - sx);
         size_t row_base = (size_t) y * (size_t) b3d_width;
         size_t buf_size = (size_t) b3d_height * (size_t) b3d_width;
 
@@ -270,18 +334,25 @@ static void raster_half(int y_start,
     }
 }
 
-/* Screen-space vertex for rasterization */
+/* Screen-space vertex for rasterization.
+ * @x: screen-space x coordinate
+ * @y: screen-space y coordinate
+ * @w_inv: 1/w for perspective-correct depth interpolation (w = z_view)
+ */
 typedef struct {
-    b3d_scalar_t x, y, z;
+    b3d_scalar_t x, y, w_inv;
 } raster_vertex_t;
 
 /* Internal rasterization function */
 static void b3d_rasterize(const raster_vertex_t v[3], uint32_t c)
 {
-    /* Copy and floor vertices */
-    raster_vertex_t a = {B3D_FP_FLOOR(v[0].x), B3D_FP_FLOOR(v[0].y), v[0].z};
-    raster_vertex_t b = {B3D_FP_FLOOR(v[1].x), B3D_FP_FLOOR(v[1].y), v[1].z};
-    raster_vertex_t cv = {B3D_FP_FLOOR(v[2].x), B3D_FP_FLOOR(v[2].y), v[2].z};
+    /* Copy and floor vertices (w_inv is not floored, only screen coords) */
+    raster_vertex_t a = {B3D_FP_FLOOR(v[0].x), B3D_FP_FLOOR(v[0].y),
+                         v[0].w_inv};
+    raster_vertex_t b = {B3D_FP_FLOOR(v[1].x), B3D_FP_FLOOR(v[1].y),
+                         v[1].w_inv};
+    raster_vertex_t cv = {B3D_FP_FLOOR(v[2].x), B3D_FP_FLOOR(v[2].y),
+                          v[2].w_inv};
 
     /* Screen-space AABB early-out */
     b3d_scalar_t min_x = b3d_fp_min(b3d_fp_min(a.x, b.x), cv.x);
@@ -320,9 +391,9 @@ static void b3d_rasterize(const raster_vertex_t v[3], uint32_t c)
     /* Setup left edge (A to C, spans entire triangle) */
     raster_edge_t left = {
         .x = a.x,
-        .z = a.z,
+        .w_inv = a.w_inv,
         .dx = cv.x - a.x,
-        .dz = cv.z - a.z,
+        .dw_inv = cv.w_inv - a.w_inv,
         .t = 0,
         .t_step = B3D_FP_DIV(B3D_FP_ONE, dy_total),
     };
@@ -330,9 +401,9 @@ static void b3d_rasterize(const raster_vertex_t v[3], uint32_t c)
     /* Setup right edge for top half (A to B) */
     raster_edge_t right = {
         .x = a.x,
-        .z = a.z,
+        .w_inv = a.w_inv,
         .dx = b.x - a.x,
-        .dz = b.z - a.z,
+        .dw_inv = b.w_inv - a.w_inv,
         .t = 0,
         .t_step = (dy_top > B3D_FP_DEGEN_THRESHOLD)
                       ? B3D_FP_DIV(B3D_FP_ONE, dy_top)
@@ -346,9 +417,9 @@ static void b3d_rasterize(const raster_vertex_t v[3], uint32_t c)
     b3d_scalar_t dy_bot = cv.y - b.y;
     right = (raster_edge_t) {
         .x = b.x,
-        .z = b.z,
+        .w_inv = b.w_inv,
         .dx = cv.x - b.x,
-        .dz = cv.z - b.z,
+        .dw_inv = cv.w_inv - b.w_inv,
         .t = 0,
         .t_step = (dy_bot > B3D_FP_DEGEN_THRESHOLD)
                       ? B3D_FP_DIV(B3D_FP_ONE, dy_bot)
@@ -418,7 +489,21 @@ bool b3d_triangle(const b3d_tri_t *tri, uint32_t c)
             fabsf(t.p[2].w) < B3D_EPSILON)
             continue;
 
+        /* Save 1/w before perspective divide for perspective-correct depth.
+         * After projection, w = z_view. We store 1/w in z component so it
+         * interpolates correctly during screen-space clipping.
+         */
+        float w_inv0 = 1.0f / t.p[0].w;
+        float w_inv1 = 1.0f / t.p[1].w;
+        float w_inv2 = 1.0f / t.p[2].w;
+
         PERSPECTIVE_DIV(t);
+
+        /* Store 1/w in z for perspective-correct depth interpolation */
+        t.p[0].z = w_inv0;
+        t.p[1].z = w_inv1;
+        t.p[2].z = w_inv2;
+
         float xs = b3d_width * 0.5f;
         float ys = b3d_height * 0.5f;
         NDC_TO_SCREEN(t.p[0], xs, ys);
@@ -452,6 +537,7 @@ bool b3d_triangle(const b3d_tri_t *tri, uint32_t c)
     if (src_count == 0)
         return false;
 
+    /* z component now contains 1/w for perspective-correct depth */
     for (int i = 0; i < src_count; ++i) {
         raster_vertex_t rv[3] = {
             {B3D_FLOAT_TO_FP(src[i].p[0].x), B3D_FLOAT_TO_FP(src[i].p[0].y),
@@ -586,6 +672,7 @@ bool b3d_init(uint32_t *pixel_buffer,
     b3d_matrix_stack_top = 0;
     b3d_model_view_dirty = true;
     b3d_fov_degrees = fov;
+    b3d_init_depth_constants();
     b3d_update_screen_planes();
     b3d_clear();
     b3d_reset();
