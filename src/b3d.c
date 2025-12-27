@@ -432,11 +432,28 @@ static void b3d_rasterize(const raster_vertex_t v[3], uint32_t c)
 
 #undef PUT_PIXEL
 
+/* Input validation: reject triangles containing NaN or infinity values.
+ * @tri: triangle to validate
+ *
+ * Returns true if all vertex coordinates are finite, false otherwise.
+ */
+static inline bool b3d_is_finite_tri(const b3d_tri_t *tri)
+{
+    for (int i = 0; i < 3; i++) {
+        if (!isfinite(tri->v[i].x) || !isfinite(tri->v[i].y) ||
+            !isfinite(tri->v[i].z))
+            return false;
+    }
+    return true;
+}
+
 /* Public API */
 
 bool b3d_triangle(const b3d_tri_t *tri, uint32_t c)
 {
     if (!tri || !b3d_pixels || !b3d_depth)
+        return false;
+    if (!b3d_is_finite_tri(tri))
         return false;
 
     b3d_triangle_t t =
@@ -871,6 +888,11 @@ bool b3d_triangle_lit(const b3d_tri_t *tri,
                       float nz,
                       uint32_t base_color)
 {
+    if (!tri || !b3d_is_finite_tri(tri))
+        return false;
+    if (!isfinite(nx) || !isfinite(ny) || !isfinite(nz))
+        return false;
+
     /* Normalize the surface normal */
     b3d_vec_t n = {nx, ny, nz, 0.0f};
     n = b3d_vec_norm(n);
