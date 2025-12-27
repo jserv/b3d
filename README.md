@@ -58,6 +58,7 @@ Compile-time options:
 | terrain | Animated sine/cosine heightmap |
 | donut | Torus with directional lighting |
 | lena3d | Image rendered as 3D heightfield |
+| voxel | Mesh voxelizer with cube rendering |
 
 Build with `make check` to validate B3D implementation.
 Build with `make all` (requires SDL2). Run headlessly with `--snapshot=PATH`.

@@ -27,7 +27,7 @@ $(LIB_OBJ): $(LIB_SRC) $(LIB_DEPS)
 
 # Clean build artifacts (all possible examples, regardless of config)
 clean:
-	$(Q)rm -f $(ALL_EXAMPLES_CLEAN) $(LIB_OBJ) $(TESTS) $(BENCHMARKS) tests/test-gen $(MATH_GEN_TEST_H)
+	$(Q)rm -f $(ALL_EXAMPLES_CLEAN) $(LIB_OBJ) $(VOXEL_OBJ) $(TESTS) $(BENCHMARKS) tests/test-gen $(MATH_GEN_TEST_H)
 
 # Clean everything including generated source files
 distclean: cleanall

@@ -12,8 +12,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "b3d-obj.h"
 #include "b3d.h"
-#include "b3d_obj.h"
 #include "utils.h"
 
 /* Main function for OBJ loader example

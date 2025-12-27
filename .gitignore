@@ -67,6 +67,7 @@ lena3d
 lighting
 obj
 terrain
+voxel
 tests/math-fixed
 tests/math-float
 tests/test-api

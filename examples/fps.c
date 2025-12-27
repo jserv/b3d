@@ -16,8 +16,8 @@
 #include <time.h>
 
 #include "b3d-math.h"
+#include "b3d-obj.h"
 #include "b3d.h"
-#include "b3d_obj.h"
 #include "utils.h"
 
 #define RND (rand() / (float) RAND_MAX)
