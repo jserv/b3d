@@ -394,11 +394,25 @@ bool b3d_triangle(const b3d_tri_t *tri, uint32_t c)
     if (count == 0)
         return false;
 
+    /* Far-plane clipping: keep vertices where z <= B3D_FAR_DISTANCE */
+    b3d_triangle_t view_clipped[4];
+    int view_count = 0;
+    for (int i = 0; i < count; ++i) {
+        b3d_triangle_t fc[2];
+        int n =
+            b3d_clip_against_plane((b3d_vec_t) {0, 0, B3D_FAR_DISTANCE, 1},
+                                   (b3d_vec_t) {0, 0, -1, 1}, clipped[i], fc);
+        for (int j = 0; j < n && view_count < 4; ++j)
+            view_clipped[view_count++] = fc[j];
+    }
+    if (view_count == 0)
+        return false;
+
     b3d_triangle_t buf_a[B3D_CLIP_BUFFER_SIZE], buf_b[B3D_CLIP_BUFFER_SIZE];
     b3d_triangle_t *src = buf_a, *dst = buf_b;
     int src_count = 0;
-    for (int n = 0; n < count; ++n) {
-        t = clipped[n];
+    for (int n = 0; n < view_count; ++n) {
+        t = view_clipped[n];
         TRANSFORM_TRI(t, b3d_proj);
         if (fabsf(t.p[0].w) < B3D_EPSILON || fabsf(t.p[1].w) < B3D_EPSILON ||
             fabsf(t.p[2].w) < B3D_EPSILON)

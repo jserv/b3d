@@ -783,6 +783,79 @@ TEST(api_near_plane_clip)
     return 1;
 }
 
+/* Test far-plane clipping */
+TEST(api_far_plane_clip)
+{
+    const int width = 64, height = 64;
+    uint32_t *pixels =
+        malloc((size_t) width * (size_t) height * sizeof(uint32_t));
+    b3d_depth_t *depth =
+        malloc((size_t) width * (size_t) height * sizeof(b3d_depth_t));
+
+    ASSERT(pixels);
+    ASSERT(depth);
+
+    bool init_ok = b3d_init(pixels, depth, width, height, 65.0f);
+    ASSERT(init_ok);
+    b3d_set_camera(&(b3d_camera_t) {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f});
+    b3d_clear();
+    b3d_reset();
+
+    const size_t pixel_count = (size_t) width * (size_t) height;
+
+    /* Test that triangles fully beyond far plane (z > 100) are clipped.
+     * The far plane in view space is at z = 100.0.
+     */
+
+    /* Triangle fully beyond far plane: should be culled */
+    bool clipped = b3d_triangle(
+        &(b3d_tri_t) {{{-10.0f, -10.0f, 150.0f},
+                       {0.0f, 10.0f, 150.0f},
+                       {10.0f, -10.0f, 150.0f}}},
+        0xff0000);
+    size_t pixels_after_far = 0;
+    for (size_t i = 0; i < pixel_count; i++) {
+        if (pixels[i] != 0)
+            pixels_after_far++;
+    }
+    ASSERT(clipped == false);
+    ASSERT(pixels_after_far == 0);
+
+    /* Triangle straddling far plane: should be clipped but still render */
+    b3d_clear();
+    bool clipped_visible = b3d_triangle(
+        &(b3d_tri_t) {{{-10.0f, -10.0f, 90.0f},
+                       {0.0f, 10.0f, 110.0f},
+                       {10.0f, -10.0f, 90.0f}}},
+        0x0000ff);
+    size_t pixels_after_clip = 0;
+    for (size_t i = 0; i < pixel_count; i++) {
+        if (pixels[i] != 0)
+            pixels_after_clip++;
+    }
+    ASSERT(clipped_visible == true);
+    ASSERT(pixels_after_clip > 0);
+
+    /* Visible triangle well within frustum (z=50) */
+    b3d_clear();
+    bool visible = b3d_triangle(
+        &(b3d_tri_t) {{{-10.0f, -10.0f, 50.0f},
+                       {0.0f, 10.0f, 50.0f},
+                       {10.0f, -10.0f, 50.0f}}},
+        0x00ff00);
+    size_t pixels_visible = 0;
+    for (size_t i = 0; i < pixel_count; i++) {
+        if (pixels[i] != 0)
+            pixels_visible++;
+    }
+    ASSERT(visible == true);
+    ASSERT(pixels_visible > 0);
+
+    free(pixels);
+    free(depth);
+    return 1;
+}
+
 /* Test screen projection with various positions */
 TEST(api_to_screen_extended)
 {
@@ -1160,6 +1233,7 @@ int main(void)
 
     SECTION_BEGIN("API Clipping");
     RUN_TEST(api_near_plane_clip);
+    RUN_TEST(api_far_plane_clip);
     RUN_TEST(api_clip_drop_count);
     SECTION_END();
 
