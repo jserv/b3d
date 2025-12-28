@@ -31,7 +31,7 @@ clean:
 
 # Clean everything including generated source files
 distclean: cleanall
-	$(Q)rm -f src/math-gen.inc
+	$(Q)rm -f src/math-gen.inc examples/globe-data.h
 
 # Rebuild everything
 rebuild: clean all
@@ -109,4 +109,10 @@ update-snapshots: $(ALL_EXAMPLES)
 	$(VECHO) "  GEN\tGenerating snapshots"
 	$(Q)./scripts/gen-snapshots.sh $(SDL2_EXAMPLES_ALL)
 
-.PHONY: all clean cleanall rebuild config check check-math-usage bench test-all generate check-gen update-snapshots $(BUILD_TARGETS) $(RUN_TARGETS)
+# Download Natural Earth data and create binary asset
+# Requires: pip3 install pyshp requests
+update-globe-data:
+	$(VECHO) "  GET\t$(GLOBE_BINARY)"
+	$(Q)python3 scripts/gen-globe-data.py download -o $(GLOBE_BINARY)
+
+.PHONY: all clean cleanall rebuild config check check-math-usage bench test-all generate check-gen update-snapshots update-globe-data $(BUILD_TARGETS) $(RUN_TARGETS)

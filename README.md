@@ -53,15 +53,28 @@ Compile-time options:
 |---------|-------------|
 | ball | Bouncing ball demo |
 | cubes | Benchmark: adds cubes until ~60 fps |
-| obj | OBJ viewer with auto-centering |
-| fps | First-person treasure hunt |
-| terrain | Animated sine/cosine heightmap |
 | donut | Torus with directional lighting |
+| fps | First-person treasure hunt |
+| gears | Interlocking animated gears |
+| globe | Rotating Earth with Natural Earth country data |
 | lena3d | Image rendered as 3D heightfield |
+| lighting | Directional lighting showcase |
+| obj | OBJ viewer with auto-centering |
+| terrain | Animated sine/cosine heightmap |
 | voxel | Mesh voxelizer with cube rendering |
 
 Build with `make check` to validate B3D implementation.
 Build with `make all` (requires SDL2). Run headlessly with `--snapshot=PATH`.
+
+### Globe Data Generation
+
+The globe example uses [Natural Earth](https://www.naturalearthdata.com/) country boundary data (public domain).
+
+```bash
+pip3 install pyshp requests   # one-time setup
+make update-globe-data        # download and process data
+make globe                    # build example
+```
 
 ## API
 

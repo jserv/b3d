@@ -58,11 +58,13 @@ __pycache__
 
 # project
 src/math-gen.inc
+examples/globe-data.h
 ball
 cubes
 donut
 fps
 gears
+globe
 lena3d
 lighting
 obj

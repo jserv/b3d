@@ -1,7 +1,7 @@
 # mk/examples.mk - Example build rules
 
 # Explicitly listed examples (add new examples here)
-SDL2_EXAMPLES_ALL := ball cubes donut fps gears lena3d lighting obj terrain voxel
+SDL2_EXAMPLES_ALL := ball cubes donut fps gears globe lena3d lighting obj terrain voxel
 
 # Enable SDL2 examples only if SDL2 available
 ifeq ($(ENABLE_SDL2), 1)
@@ -23,6 +23,16 @@ $(foreach ex,$(ALL_EXAMPLES_CLEAN),$(eval $(ex)_SRC := $(EXAMPLES_DIR)/$(ex).c))
 obj_DEPS := $(INCLUDE_DIR)/b3d-obj.h
 fps_DEPS := $(INCLUDE_DIR)/b3d-obj.h
 voxel_DEPS := $(INCLUDE_DIR)/b3d-voxel.h $(INCLUDE_DIR)/b3d-obj.h
+globe_DEPS := examples/globe-data.h
+
+# Globe data paths
+GLOBE_BINARY := assets/globe-countries.bin
+GLOBE_HEADER := examples/globe-data.h
+
+# Generate C header from binary asset (requires binary to exist)
+$(GLOBE_HEADER): $(GLOBE_BINARY)
+	$(VECHO) "  GEN\t$@"
+	$(Q)python3 scripts/gen-globe-data.py header -i $< -o $@
 
 # Voxel module object file
 VOXEL_OBJ := $(SRC_DIR)/b3d-voxel.o
