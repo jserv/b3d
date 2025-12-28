@@ -659,13 +659,22 @@ size_t b3d_voxelize(const float *triangles,
             b3d_voxel_add(half_size, precision),
         };
 
-        /* Test each voxel in AABB using integer indices */
-        for (int ix = ix_min; ix <= ix_max && !buffer_full; ix++) {
-            b3d_scalar_t x = b3d_voxel_mul(B3D_INT_TO_FP(ix), vs);
-            for (int iy = iy_min; iy <= iy_max && !buffer_full; iy++) {
-                b3d_scalar_t y = b3d_voxel_mul(B3D_INT_TO_FP(iy), vs);
-                for (int iz = iz_min; iz <= iz_max && !buffer_full; iz++) {
-                    b3d_scalar_t z = b3d_voxel_mul(B3D_INT_TO_FP(iz), vs);
+        /* Precompute base coordinates: replace per-voxel multiplies with adds
+         */
+        b3d_scalar_t x_base = b3d_voxel_mul(B3D_INT_TO_FP(ix_min), vs);
+        b3d_scalar_t y_base = b3d_voxel_mul(B3D_INT_TO_FP(iy_min), vs);
+        b3d_scalar_t z_base = b3d_voxel_mul(B3D_INT_TO_FP(iz_min), vs);
+
+        /* Test each voxel in AABB using incremental coordinate computation */
+        b3d_scalar_t x = x_base;
+        for (int ix = ix_min; ix <= ix_max && !buffer_full;
+             ix++, x = b3d_voxel_add(x, vs)) {
+            b3d_scalar_t y = y_base;
+            for (int iy = iy_min; iy <= iy_max && !buffer_full;
+                 iy++, y = b3d_voxel_add(y, vs)) {
+                b3d_scalar_t z = z_base;
+                for (int iz = iz_min; iz <= iz_max && !buffer_full;
+                     iz++, z = b3d_voxel_add(z, vs)) {
                     b3d_voxel_spos_t center = {x, y, z};
 
                     if (b3d_voxel_tri_box_overlap(center, halfbox, tri)) {
