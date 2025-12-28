@@ -256,13 +256,31 @@ static void raster_half(int y_start,
 {
     b3d_scalar_t tmp = 0;
 
-    for (int y = y_start; y < y_end; y++) {
-        if (y < 0 || y >= b3d_height) {
-            left->t += left->t_step;
-            right->t += right->t_step;
-            continue;
-        }
+    /* Clamp y range to screen bounds, fast-forward edge parameters.
+     * Fixed-point: use int64_t to prevent overflow when t_step * skip
+     * could exceed INT32_MAX on zoomed-in geometry.
+     * Float: standard multiplication is safe.
+     */
+    if (y_start < 0) {
+        int skip = -y_start;
+#ifdef B3D_FLOAT_POINT
+        left->t += left->t_step * (b3d_scalar_t) skip;
+        right->t += right->t_step * (b3d_scalar_t) skip;
+#else
+        left->t += (b3d_scalar_t) ((int64_t) left->t_step * skip);
+        right->t += (b3d_scalar_t) ((int64_t) right->t_step * skip);
+#endif
+        y_start = 0;
+    }
+    if (y_end > b3d_height)
+        y_end = b3d_height;
+    if (y_start >= y_end)
+        return;
 
+    /* Initialize row base for iterative update (addition vs multiplication) */
+    size_t row_base = (size_t) y_start * (size_t) b3d_width;
+
+    for (int y = y_start; y < y_end; y++) {
         /* Interpolate x and 1/w along edges */
         b3d_scalar_t sx = left->x + B3D_FP_MUL(left->dx, left->t);
         b3d_scalar_t sw = left->w_inv + B3D_FP_MUL(left->dw_inv, left->t);
@@ -274,6 +292,7 @@ static void raster_half(int y_start,
         if (dx < B3D_FP_DEGEN_THRESHOLD) {
             left->t += left->t_step;
             right->t += right->t_step;
+            row_base += b3d_width;
             continue;
         }
 
@@ -289,6 +308,7 @@ static void raster_half(int y_start,
         if ((int64_t) dw_abs > (int64_t) dx * 32) {
             left->t += left->t_step;
             right->t += right->t_step;
+            row_base += b3d_width;
             continue;
         }
         b3d_scalar_t w_step = B3D_FP_DIV(dw, dx);
@@ -299,19 +319,12 @@ static void raster_half(int y_start,
         if (start >= end) {
             left->t += left->t_step;
             right->t += right->t_step;
+            row_base += b3d_width;
             continue;
         }
 
         /* Compute starting 1/w at first visible pixel */
         b3d_scalar_t w = sw + B3D_FP_MUL(w_step, B3D_INT_TO_FP(start) - sx);
-        size_t row_base = (size_t) y * (size_t) b3d_width;
-        size_t buf_size = (size_t) b3d_height * (size_t) b3d_width;
-
-        if (row_base >= buf_size || (size_t) end > buf_size - row_base) {
-            left->t += left->t_step;
-            right->t += right->t_step;
-            continue;
-        }
 
         b3d_depth_t *dp = b3d_depth + row_base + start;
         uint32_t *pp = b3d_pixels + row_base + start;
@@ -331,6 +344,7 @@ static void raster_half(int y_start,
 
         left->t += left->t_step;
         right->t += right->t_step;
+        row_base += b3d_width;
     }
 }
 
