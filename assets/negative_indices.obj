@@ -1,0 +1,27 @@
+# Test mesh using negative (relative) vertex indices
+# Tests: negative index handling (f -3 -2 -1 means last 3 vertices)
+
+# First triangle
+v 0.0 0.0 0.0
+v 1.0 0.0 0.0
+v 0.5 1.0 0.0
+f -3 -2 -1
+
+# Second triangle (uses relative refs to previous 3 vertices)
+v 1.0 0.0 0.0
+v 2.0 0.0 0.0
+v 1.5 1.0 0.0
+f -3 -2 -1
+
+# Third triangle
+v 2.0 0.0 0.0
+v 3.0 0.0 0.0
+v 2.5 1.0 0.0
+f -3 -2 -1
+
+# Quad with negative indices
+v 0.0 1.0 0.0
+v 1.0 1.0 0.0
+v 1.0 2.0 0.0
+v 0.0 2.0 0.0
+f -4 -3 -2 -1

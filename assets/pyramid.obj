@@ -1,0 +1,28 @@
+# Square pyramid with texture coordinates and normals
+# Tests: v/vt/vn index format parsing
+
+# Vertices
+v  0.0  1.0  0.0
+v -1.0  0.0  1.0
+v  1.0  0.0  1.0
+v  1.0  0.0 -1.0
+v -1.0  0.0 -1.0
+
+# Texture coordinates
+vt 0.5 1.0
+vt 0.0 0.0
+vt 1.0 0.0
+
+# Normals
+vn  0.0  0.447  0.894
+vn  0.894  0.447  0.0
+vn  0.0  0.447 -0.894
+vn -0.894  0.447  0.0
+vn  0.0 -1.0  0.0
+
+# Faces with v/vt/vn
+f 1/1/1 2/2/1 3/3/1
+f 1/1/2 3/2/2 4/3/2
+f 1/1/3 4/2/3 5/3/3
+f 1/1/4 5/2/4 2/3/4
+f 2/1/5 5/2/5 4/3/5 3/3/5

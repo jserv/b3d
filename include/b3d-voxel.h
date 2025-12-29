@@ -73,7 +73,9 @@ size_t b3d_voxelize(const float *triangles,
  * Uses b3d_triangle_lit for lighting calculations.
  * Silently returns if voxels is NULL, count is 0, or voxel_size <= 0.
  */
-void b3d_voxel_render(const b3d_voxel_t *voxels, size_t count, float voxel_size);
+void b3d_voxel_render(const b3d_voxel_t *voxels,
+                      size_t count,
+                      float voxel_size);
 
 /*
  * Render voxels as cubes using B3D (flat/unlit).
