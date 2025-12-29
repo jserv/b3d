@@ -1,7 +1,7 @@
 # mk/examples.mk - Example build rules
 
 # Explicitly listed examples (add new examples here)
-SDL2_EXAMPLES_ALL := ball cubes donut fps gears globe lena3d lighting obj terrain voxel
+SDL2_EXAMPLES_ALL := ball cubes donut fps gears globe lena3d lighting microcraft obj terrain voxel
 
 # Enable SDL2 examples only if SDL2 available
 ifeq ($(ENABLE_SDL2), 1)

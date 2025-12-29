@@ -59,6 +59,7 @@ Compile-time options:
 | globe | Rotating Earth with Natural Earth country data |
 | lena3d | Image rendered as 3D heightfield |
 | lighting | Directional lighting showcase |
+| microcraft | Minecraft-style voxel terrain with procedural generation |
 | obj | OBJ viewer with auto-centering |
 | terrain | Animated sine/cosine heightmap |
 | voxel | Mesh voxelizer with cube rendering |
