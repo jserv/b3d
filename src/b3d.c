@@ -484,7 +484,8 @@ bool b3d_triangle(const b3d_tri_t *tri, uint32_t c)
     b3d_vec_t line_b = b3d_vec_sub(t.p[2], t.p[0]);
     b3d_vec_t normal = b3d_vec_cross(line_a, line_b);
     b3d_vec_t cam_ray = b3d_vec_sub(t.p[0], b3d_camera);
-    if (b3d_vec_dot(normal, cam_ray) > B3D_CULL_THRESHOLD)
+    bool cull = !(c & B3D_DRAW_BACKFACE);
+    if (cull && b3d_vec_dot(normal, cam_ray) > B3D_CULL_THRESHOLD)
         return false;
     TRANSFORM_TRI(t, b3d_view);
 #endif
@@ -577,7 +578,7 @@ bool b3d_triangle(const b3d_tri_t *tri, uint32_t c)
             {B3D_FLOAT_TO_FP(src[i].p[2].x), B3D_FLOAT_TO_FP(src[i].p[2].y),
              B3D_FLOAT_TO_FP(src[i].p[2].z)},
         };
-        b3d_rasterize(rv, c);
+        b3d_rasterize(rv, c & 0x00FFFFFFU);
     }
     return true;
 }
@@ -915,8 +916,11 @@ bool b3d_triangle_lit(const b3d_tri_t *tri,
     if (dot < 0.0f)
         dot = -dot;
 
+    /* Preserve control flags (e.g., B3D_DRAW_BACKFACE) */
+    uint32_t flags = base_color & 0xFF000000U;
+
     float intensity = b3d_ambient + (1.0f - b3d_ambient) * dot;
     uint32_t shaded = b3d_shade_color(base_color, intensity);
 
-    return b3d_triangle(tri, shaded);
+    return b3d_triangle(tri, shaded | flags);
 }

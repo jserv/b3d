@@ -171,6 +171,11 @@ Colors are 32-bit RGB (alpha channel ignored):
 - Format: `0xRRGGBB` or `0xAARRGGBB`
 - Examples: `0xFF0000` (red), `0x00FF00` (green), `0x0000FF` (blue)
 
+Per-face control flags use upper bits:
+- `B3D_DRAW_BACKFACE` (bit 31): Disable backface culling for this triangle
+- Usage: `b3d_triangle(&tri, color | B3D_DRAW_BACKFACE)`
+- Use case: Double-sided geometry (leaves, flags), skyboxes with outward normals
+
 ## Coordinate System
 
 | Property | Value |
@@ -206,8 +211,8 @@ serialize all B3D calls or use separate processes.
 
 - Depth buffer: 16-bit mode (`B3D_DEPTH_16BIT`) halves memory bandwidth
 - Fixed-point: Default Q15.16 is faster on systems without FPU
-- Culling: Back-face culling is enabled by default; disable with
-  `B3D_NO_CULLING` only for transparent or two-sided geometry
+- Culling: Back-face culling is enabled by default; use `B3D_DRAW_BACKFACE`
+  per-face for skyboxes/particles, or `B3D_NO_CULLING` compile-time for all
 - Batching: Minimize `b3d_push_matrix`/`b3d_pop_matrix` pairs
 - Clipping: Use `b3d_get_clip_drop_count()` to detect buffer overflow
 

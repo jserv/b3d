@@ -215,9 +215,15 @@ float b3d_get_ambient(void);
 
 /* Rendering */
 
+/* Per-face control flags (upper bits of color parameter).
+ * Use: b3d_triangle(tri, color | B3D_DRAW_BACKFACE)
+ */
+#define B3D_DRAW_BACKFACE \
+    0x80000000U /* Bit 31: disable culling for this face */
+
 /* Render a triangle.
  * @tri: pointer to triangle with 3 vertices
- * @c:   triangle color in 0xRRGGBB format
+ * @c:   triangle color in 0xRRGGBB format (upper bits may contain flags)
  *
  * Returns true if rendered, false if culled/clipped away.
  */
