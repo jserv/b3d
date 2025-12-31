@@ -111,120 +111,160 @@ typedef b3d_fixed_t b3d_scalar_t;
 #define B3D_FP_PI_SQ \
     ((b3d_fixed_t) (((int64_t) B3D_FP_PI * B3D_FP_PI) >> B3D_FP_BITS))
 
-/* Bhaskara I kernel for x in [0, π], returns positive sine approximation */
-static inline b3d_fixed_t b3d_fp_sin_core(b3d_fixed_t x)
+/* Sine/Cosine Lookup Table
+ *
+ * Power-of-two table size enables bitwise masking instead of modulo.
+ * Pre-computed reciprocal eliminates expensive 64-bit division.
+ * Linear interpolation provides sub-degree precision (~0.1% max error).
+ *
+ * Memory: 513 entries * 4 bytes = ~2KB
+ * Performance: multiply+shift+mask vs. division+modulo
+ */
+#define B3D_TRIG_LUT_BITS 9
+#define B3D_TRIG_LUT_SIZE (1 << B3D_TRIG_LUT_BITS) /* 512 entries */
+#define B3D_TRIG_LUT_MASK (B3D_TRIG_LUT_SIZE - 1)  /* 0x1FF for fast wrap */
+
+/* Pre-computed: (512 << 32) / B3D_FP_2PI for radians-to-index conversion.
+ * This replaces division with multiply+shift: index = (x * RECIP) >> 32
+ */
+#define B3D_RAD_TO_IDX_RECIP 5340364LL
+
+static b3d_fixed_t b3d_sin_lut[B3D_TRIG_LUT_SIZE + 1]; /* +1 for interp wrap */
+static int b3d_trig_lut_ready = 0;
+
+/* Initialize trig LUT - call from b3d_init() or on first use */
+static inline void b3d_init_trig_lut(void)
 {
-    b3d_fixed_t xp = B3D_FP_MUL(x, B3D_FP_PI - x);
-    b3d_fixed_t denom = 5 * B3D_FP_PI_SQ - 4 * xp;
-
-    if (denom == 0)
-        return 0;
-
-    return B3D_FP_DIV(16 * xp, denom);
+    if (b3d_trig_lut_ready)
+        return;
+    for (int i = 0; i <= B3D_TRIG_LUT_SIZE; i++) {
+        float rad = (float) i * (6.2831853072f / (float) B3D_TRIG_LUT_SIZE);
+        b3d_sin_lut[i] = (b3d_fixed_t) (sinf(rad) * (float) B3D_FP_ONE);
+    }
+    b3d_trig_lut_ready = 1;
 }
 
-/* Bhaskara I sine: sin(x) ≈ 16x(π-x) / (5π² - 4x(π-x)), ~0.3% max error */
-static inline b3d_fixed_t b3d_fp_sin(b3d_fixed_t x)
+/* Core LUT lookup with linear interpolation (no init check - caller ensures).
+ * @x: angle in Q15.16 fixed-point radians (must be non-negative)
+ * @idx_offset: 0 for sine, 128 for cosine (quarter circle)
+ * Returns: result in Q15.16 fixed-point
+ */
+static inline b3d_fixed_t b3d_lut_lookup(int64_t x64, int idx_offset)
+{
+    /* Convert radians to index using multiply+shift (no division!)
+     * index_fp = x * (512 / 2π) in Q16.16 format
+     */
+    int64_t idx_fp = (x64 * B3D_RAD_TO_IDX_RECIP) >> B3D_FP_BITS;
+
+    /* Extract integer index and fractional part */
+    uint32_t idx =
+        (((uint32_t) (idx_fp >> B3D_FP_BITS)) + idx_offset) & B3D_TRIG_LUT_MASK;
+    b3d_fixed_t frac = (b3d_fixed_t) (idx_fp & ((1 << B3D_FP_BITS) - 1));
+
+    /* Linear interpolation between adjacent table entries */
+    b3d_fixed_t s0 = b3d_sin_lut[idx];
+    b3d_fixed_t s1 = b3d_sin_lut[idx + 1];
+    return s0 + B3D_FP_MUL(s1 - s0, frac);
+}
+
+/* Fast sine using power-of-two LUT with linear interpolation.
+ * @x: angle in Q15.16 fixed-point radians
+ * Returns: sin(x) in Q15.16 fixed-point
+ */
+static inline b3d_fixed_t b3d_lut_sin(b3d_fixed_t x)
 {
     int sign = 1;
     int64_t x64 = x;
 
-    /* Handle negative angles - guard against INT32_MIN overflow */
     if (x64 < 0) {
-        if (x64 == INT32_MIN)
-            x64 = INT32_MAX; /* Clamp to avoid overflow on negation */
-        else
-            x64 = -x64;
-        sign = -sign;
+        x64 = -x64;
+        sign = -1;
     }
 
-    /* Fast modulo reduction using int64_t (avoids slow loop for large angles)
-     */
-    if (x64 >= B3D_FP_2PI) {
-        x64 %= (int64_t) B3D_FP_2PI;
-    }
-
-    /* Map (π, 2π) to (0, π) with sign flip */
-    b3d_fixed_t angle = (b3d_fixed_t) x64;
-    if (angle > B3D_FP_PI) {
-        angle -= B3D_FP_PI;
-        sign = -sign;
-    }
-
-    return sign * b3d_fp_sin_core(angle);
+    b3d_fixed_t result = b3d_lut_lookup(x64, 0);
+    return sign == 1 ? result : -result;
 }
 
-/* Compute sine and cosine together to share reduction work */
-static inline void b3d_fp_sincos(b3d_fixed_t x,
-                                 b3d_fixed_t *sinp,
-                                 b3d_fixed_t *cosp)
+/* Fast cosine using LUT: cos(x) = sin(x + π/2), offset by 128 in 512-entry
+ * table
+ * @x: angle in Q15.16 fixed-point radians
+ * Returns: cos(x) in Q15.16 fixed-point
+ */
+static inline b3d_fixed_t b3d_lut_cos(b3d_fixed_t x)
+{
+    int64_t x64 = x < 0 ? -x : x;                      /* cos(-x) = cos(x) */
+    return b3d_lut_lookup(x64, B3D_TRIG_LUT_SIZE / 4); /* +128 = 90° offset */
+}
+
+/* Compute sine and cosine together (shares conversion work) */
+static inline void b3d_lut_sincos(b3d_fixed_t x,
+                                  b3d_fixed_t *sinp,
+                                  b3d_fixed_t *cosp)
 {
     int sin_sign = 1;
     int64_t x64 = x;
 
     if (x64 < 0) {
-        if (x64 == INT32_MIN)
-            x64 = INT32_MAX;
-        else
-            x64 = -x64;
+        x64 = -x64;
         sin_sign = -1;
     }
 
-    if (x64 >= B3D_FP_2PI)
-        x64 %= (int64_t) B3D_FP_2PI;
+    /* Single radians-to-index conversion shared by sin and cos */
+    int64_t idx_fp = (x64 * B3D_RAD_TO_IDX_RECIP) >> B3D_FP_BITS;
+    uint32_t sin_idx = ((uint32_t) (idx_fp >> B3D_FP_BITS)) & B3D_TRIG_LUT_MASK;
+    b3d_fixed_t frac = (b3d_fixed_t) (idx_fp & ((1 << B3D_FP_BITS) - 1));
 
-    b3d_fixed_t angle = (b3d_fixed_t) x64;
+    /* Sine interpolation */
+    b3d_fixed_t s0 = b3d_sin_lut[sin_idx];
+    b3d_fixed_t s1 = b3d_sin_lut[sin_idx + 1];
+    b3d_fixed_t sin_val = s0 + B3D_FP_MUL(s1 - s0, frac);
 
-    /* Sine */
-    b3d_fixed_t sin_angle = angle;
-    if (sin_angle > B3D_FP_PI) {
-        sin_angle -= B3D_FP_PI;
-        sin_sign = -sin_sign;
-    }
-    b3d_fixed_t sin_val = b3d_fp_sin_core(sin_angle);
+    /* Cosine: +128 offset (quarter circle) */
+    uint32_t cos_idx = (sin_idx + B3D_TRIG_LUT_SIZE / 4) & B3D_TRIG_LUT_MASK;
+    s0 = b3d_sin_lut[cos_idx];
+    s1 = b3d_sin_lut[cos_idx + 1];
+    b3d_fixed_t cos_val = s0 + B3D_FP_MUL(s1 - s0, frac);
+
     if (sinp)
         *sinp = (sin_sign == 1) ? sin_val : -sin_val;
-
-    /* Cosine via quadrant mapping to [0, π/2] */
-    int quadrant = (int) (x64 / (int64_t) B3D_FP_PI_HALF);
-    b3d_fixed_t cos_angle;
-    int cos_sign;
-
-    switch (quadrant) {
-    case 0:
-        cos_angle = B3D_FP_PI_HALF - angle;
-        cos_sign = 1;
-        break;
-    case 1:
-        cos_angle = angle - B3D_FP_PI_HALF;
-        cos_sign = -1;
-        break;
-    case 2:
-        cos_angle = B3D_FP_3PI_HALF - angle;
-        cos_sign = -1;
-        break;
-    default:
-        cos_angle = angle - B3D_FP_3PI_HALF;
-        cos_sign = 1;
-        break;
-    }
-
-    b3d_fixed_t cos_val = b3d_fp_sin_core(cos_angle);
     if (cosp)
-        *cosp = (cos_sign == 1) ? cos_val : -cos_val;
+        *cosp = cos_val;
 }
 
+/* Primary sine - initializes LUT on first use if needed.
+ * @x: angle in Q15.16 fixed-point radians
+ * Returns: sin(x) in Q15.16 fixed-point
+ */
+static inline b3d_fixed_t b3d_fp_sin(b3d_fixed_t x)
+{
+    if (!b3d_trig_lut_ready)
+        b3d_init_trig_lut();
+    return b3d_lut_sin(x);
+}
+
+/* Primary cosine - initializes LUT on first use if needed.
+ * @x: angle in Q15.16 fixed-point radians
+ * Returns: cos(x) in Q15.16 fixed-point
+ */
 static inline b3d_fixed_t b3d_fp_cos(b3d_fixed_t x)
 {
-    /* Do addition in int64_t to avoid overflow for large angles near INT32_MAX.
-     * b3d_fp_sin handles modulo reduction internally. */
-    int64_t x64 = (int64_t) x + (int64_t) B3D_FP_PI_HALF;
-    /* Reduce to int32_t range before calling sin */
-    if (x64 > INT32_MAX)
-        x64 = x64 % (int64_t) B3D_FP_2PI;
-    else if (x64 < INT32_MIN)
-        x64 = -((-x64) % (int64_t) B3D_FP_2PI);
-    return b3d_fp_sin((b3d_fixed_t) x64);
+    if (!b3d_trig_lut_ready)
+        b3d_init_trig_lut();
+    return b3d_lut_cos(x);
+}
+
+/* Compute sine and cosine together using LUT (faster than separate calls).
+ * @x:    angle in Q15.16 fixed-point radians
+ * @sinp: pointer to store sine result (may be NULL)
+ * @cosp: pointer to store cosine result (may be NULL)
+ */
+static inline void b3d_fp_sincos(b3d_fixed_t x,
+                                 b3d_fixed_t *sinp,
+                                 b3d_fixed_t *cosp)
+{
+    if (!b3d_trig_lut_ready)
+        b3d_init_trig_lut();
+    b3d_lut_sincos(x, sinp, cosp);
 }
 
 /* Integer sqrt on Q16.16: computes floor(sqrt(a)) in fixed-point */
