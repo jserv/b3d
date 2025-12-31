@@ -188,8 +188,8 @@ static inline void b3d_math_fp_sincos(b3d_math_fixed_t x,
 
     /* Single radians-to-index conversion shared by sin and cos */
     int64_t idx_fp = (x64 * B3D_MATH_RAD_TO_IDX) >> B3D_MATH_FP_BITS;
-    uint32_t sin_idx = ((uint32_t) (idx_fp >> B3D_MATH_FP_BITS)) &
-                       B3D_MATH_LUT_MASK;
+    uint32_t sin_idx =
+        ((uint32_t) (idx_fp >> B3D_MATH_FP_BITS)) & B3D_MATH_LUT_MASK;
     b3d_math_fixed_t frac =
         (b3d_math_fixed_t) (idx_fp & ((1 << B3D_MATH_FP_BITS) - 1));
 

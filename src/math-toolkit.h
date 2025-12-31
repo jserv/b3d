@@ -74,6 +74,22 @@ static inline b3d_scalar_t b3d_fp_abs(b3d_scalar_t x)
     return fabsf(x);
 }
 
+/* Float mode: inner loop uses same type, no conversion needed */
+typedef float b3d_tri_scalar_t;
+#define B3D_TRI_FP_BITS 0
+#define B3D_TRI_FP_ONE 1.0f
+#define B3D_TRI_FP_MUL(a, b) ((a) * (b))
+#define B3D_TRI_FP_DIV(a, b) ((b) == 0 ? 0 : (a) / (b))
+#define B3D_FP_TO_TRI(f) (f)
+#define B3D_TRI_TO_FP(f) (f)
+#define B3D_FP_MUL_TRI(fp, tri) ((fp) * (tri))
+static inline b3d_tri_scalar_t b3d_tri_mul_add_sat(b3d_tri_scalar_t t,
+                                                   b3d_tri_scalar_t t_step,
+                                                   int skip)
+{
+    return t + t_step * (float) skip;
+}
+
 #else /* Fixed-point path */
 
 /* Q15.16 format in int32_t: range ±32,768, precision 1/65536 */
@@ -300,6 +316,58 @@ static inline b3d_fixed_t b3d_fp_abs(b3d_fixed_t x)
     if (x == INT32_MIN)
         return INT32_MAX; /* -INT32_MIN overflows; clamp to max */
     return x < 0 ? -x : x;
+}
+
+/* Higher-precision inner loop format (Q12.20).
+ *
+ * Screen coordinates are bounded (typically 0-1920), so we can trade
+ * integer range for fractional precision. Q12.20 provides 16x more
+ * precision than Q15.16 for smoother edge interpolation.
+ */
+typedef int32_t b3d_tri_scalar_t;
+#define B3D_TRI_FP_BITS 20
+#define B3D_TRI_FP_ONE (1LL << B3D_TRI_FP_BITS)
+#define B3D_TRI_FP_MUL(a, b) \
+    ((b3d_tri_scalar_t) (((int64_t) (a) * (b)) >> B3D_TRI_FP_BITS))
+#define B3D_TRI_FP_DIV(a, b) \
+    ((b) == 0 ? 0 : (b3d_tri_scalar_t) (((int64_t) (a) * B3D_TRI_FP_ONE) / (b)))
+
+/* Convert Q15.16 to Q12.20 with saturation.
+ * Q12.20 has 12 integer bits, so values >= 2048 or <= -2048 saturate.
+ * Uses inline function for overflow protection.
+ */
+static inline b3d_tri_scalar_t b3d_fp_to_tri(b3d_fixed_t f)
+{
+    int64_t wide = (int64_t) f << (B3D_TRI_FP_BITS - B3D_FP_BITS);
+    if (wide > INT32_MAX)
+        return INT32_MAX;
+    if (wide < INT32_MIN)
+        return INT32_MIN;
+    return (b3d_tri_scalar_t) wide;
+}
+#define B3D_FP_TO_TRI(f) b3d_fp_to_tri(f)
+
+/* Convert Q12.20 to Q15.16: shift right 4 bits */
+#define B3D_TRI_TO_FP(f) \
+    ((b3d_scalar_t) ((f) >> (B3D_TRI_FP_BITS - B3D_FP_BITS)))
+/* Mixed multiply: Q15.16 * Q12.20 → Q15.16 (shift by TRI bits) */
+#define B3D_FP_MUL_TRI(fp, tri) \
+    ((b3d_scalar_t) (((int64_t) (fp) * (tri)) >> B3D_TRI_FP_BITS))
+
+/* Saturating multiply-add for skip accumulation: t += t_step * skip.
+ * Prevents overflow when skip is large (off-screen geometry).
+ */
+static inline b3d_tri_scalar_t b3d_tri_mul_add_sat(b3d_tri_scalar_t t,
+                                                   b3d_tri_scalar_t t_step,
+                                                   int skip)
+{
+    int64_t delta = (int64_t) t_step * skip;
+    int64_t result = (int64_t) t + delta;
+    if (result > INT32_MAX)
+        return INT32_MAX;
+    if (result < INT32_MIN)
+        return INT32_MIN;
+    return (b3d_tri_scalar_t) result;
 }
 
 #endif /* B3D_FLOAT_POINT */

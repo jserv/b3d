@@ -235,12 +235,14 @@ static inline int b3d_clamp_int(int v, int lo, int hi)
 
 /* Edge interpolation state for rasterizer.
  * Uses 1/w for perspective-correct depth interpolation.
+ * t and t_step use higher precision (Q12.20) for smoother edges.
+ * Parametric interpolation: value = start + total_delta * t
  */
 typedef struct {
     b3d_scalar_t x, w_inv;   /* start position: x coord and 1/w */
-    b3d_scalar_t dx, dw_inv; /* delta per scanline */
-    b3d_scalar_t t;          /* interpolation parameter [0, 1] */
-    b3d_scalar_t t_step;     /* step per scanline */
+    b3d_scalar_t dx, dw_inv; /* total edge delta (end - start) */
+    b3d_tri_scalar_t t;      /* interpolation parameter [0, 1] (Q12.20) */
+    b3d_tri_scalar_t t_step; /* step per scanline (Q12.20) */
 } raster_edge_t;
 
 /* Rasterize one half of a triangle (top or bottom).
@@ -257,19 +259,12 @@ static void raster_half(int y_start,
     b3d_scalar_t tmp = 0;
 
     /* Clamp y range to screen bounds, fast-forward edge parameters.
-     * Fixed-point: use int64_t to prevent overflow when t_step * skip
-     * could exceed INT32_MAX on zoomed-in geometry.
-     * Float: standard multiplication is safe.
+     * Uses saturating multiply-add to prevent overflow on large skips.
      */
     if (y_start < 0) {
         int skip = -y_start;
-#ifdef B3D_FLOAT_POINT
-        left->t += left->t_step * (b3d_scalar_t) skip;
-        right->t += right->t_step * (b3d_scalar_t) skip;
-#else
-        left->t += (b3d_scalar_t) ((int64_t) left->t_step * skip);
-        right->t += (b3d_scalar_t) ((int64_t) right->t_step * skip);
-#endif
+        left->t = b3d_tri_mul_add_sat(left->t, left->t_step, skip);
+        right->t = b3d_tri_mul_add_sat(right->t, right->t_step, skip);
         y_start = 0;
     }
     if (y_end > b3d_height)
@@ -281,11 +276,13 @@ static void raster_half(int y_start,
     size_t row_base = (size_t) y_start * (size_t) b3d_width;
 
     for (int y = y_start; y < y_end; y++) {
-        /* Interpolate x and 1/w along edges */
-        b3d_scalar_t sx = left->x + B3D_FP_MUL(left->dx, left->t);
-        b3d_scalar_t sw = left->w_inv + B3D_FP_MUL(left->dw_inv, left->t);
-        b3d_scalar_t ex = right->x + B3D_FP_MUL(right->dx, right->t);
-        b3d_scalar_t ew = right->w_inv + B3D_FP_MUL(right->dw_inv, right->t);
+        /* Interpolate x and 1/w along edges using higher-precision t (Q12.20)
+         */
+        b3d_scalar_t sx = left->x + B3D_FP_MUL_TRI(left->dx, left->t);
+        b3d_scalar_t sw = left->w_inv + B3D_FP_MUL_TRI(left->dw_inv, left->t);
+        b3d_scalar_t ex = right->x + B3D_FP_MUL_TRI(right->dx, right->t);
+        b3d_scalar_t ew =
+            right->w_inv + B3D_FP_MUL_TRI(right->dw_inv, right->t);
         if (sx > ex)
             SWAP_SPAN(sx, sw, ex, ew, tmp);
         b3d_scalar_t dx = ex - sx;
@@ -402,14 +399,16 @@ static void b3d_rasterize(const raster_vertex_t v[3], uint32_t c)
     if (dy_total < B3D_FP_DEGEN_THRESHOLD)
         return;
 
-    /* Setup left edge (A to C, spans entire triangle) */
+    /* Setup left edge (A to C, spans entire triangle).
+     * t_step uses Q12.20 for higher precision interpolation.
+     */
     raster_edge_t left = {
         .x = a.x,
         .w_inv = a.w_inv,
         .dx = cv.x - a.x,
         .dw_inv = cv.w_inv - a.w_inv,
         .t = 0,
-        .t_step = B3D_FP_DIV(B3D_FP_ONE, dy_total),
+        .t_step = B3D_TRI_FP_DIV(B3D_TRI_FP_ONE, B3D_FP_TO_TRI(dy_total)),
     };
 
     /* Setup right edge for top half (A to B) */
@@ -420,7 +419,7 @@ static void b3d_rasterize(const raster_vertex_t v[3], uint32_t c)
         .dw_inv = b.w_inv - a.w_inv,
         .t = 0,
         .t_step = (dy_top > B3D_FP_DEGEN_THRESHOLD)
-                      ? B3D_FP_DIV(B3D_FP_ONE, dy_top)
+                      ? B3D_TRI_FP_DIV(B3D_TRI_FP_ONE, B3D_FP_TO_TRI(dy_top))
                       : 0,
     };
 
@@ -436,7 +435,7 @@ static void b3d_rasterize(const raster_vertex_t v[3], uint32_t c)
         .dw_inv = cv.w_inv - b.w_inv,
         .t = 0,
         .t_step = (dy_bot > B3D_FP_DEGEN_THRESHOLD)
-                      ? B3D_FP_DIV(B3D_FP_ONE, dy_bot)
+                      ? B3D_TRI_FP_DIV(B3D_TRI_FP_ONE, B3D_FP_TO_TRI(dy_bot))
                       : 0,
     };
 
