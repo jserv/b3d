@@ -1111,6 +1111,96 @@ TEST(api_triangle_lit)
     return 1;
 }
 
+/* Test orthographic projection API */
+TEST(api_ortho_projection)
+{
+    const int width = 64, height = 64;
+    uint32_t *pixels =
+        malloc((size_t) width * (size_t) height * sizeof(uint32_t));
+    b3d_depth_t *depth =
+        malloc((size_t) width * (size_t) height * sizeof(b3d_depth_t));
+
+    ASSERT(pixels);
+    ASSERT(depth);
+
+    bool init_ok = b3d_init(pixels, depth, width, height, 65.0f);
+    ASSERT(init_ok);
+
+    /* After init, should be in perspective mode */
+    ASSERT(b3d_is_ortho() == false);
+
+    /* Switch to orthographic projection */
+    b3d_ortho(-1.0f, 1.0f, -1.0f, 1.0f, 0.1f, 100.0f);
+    ASSERT(b3d_is_ortho() == true);
+
+    /* Switching back via b3d_set_fov should restore perspective */
+    b3d_set_fov(65.0f);
+    ASSERT(b3d_is_ortho() == false);
+
+    /* Switch back to ortho */
+    b3d_ortho(-2.0f, 2.0f, -1.5f, 1.5f, 0.1f, 50.0f);
+    ASSERT(b3d_is_ortho() == true);
+
+    /* Get projection matrix and verify it's orthographic (w column should be
+     * [0,0,0,1]) */
+    float proj[16];
+    b3d_get_proj_matrix(proj);
+    ASSERT(fabsf(proj[3]) < 0.0001f);  /* m[0][3] should be 0 */
+    ASSERT(fabsf(proj[7]) < 0.0001f);  /* m[1][3] should be 0 */
+    ASSERT(fabsf(proj[11]) < 0.0001f); /* m[2][3] should be 0 */
+    ASSERT(fabsf(proj[15] - 1.0f) < 0.0001f); /* m[3][3] should be 1 */
+
+    /* Test rendering in orthographic mode */
+    b3d_set_camera(&(b3d_camera_t) {0.0f, 0.0f, -5.0f, 0.0f, 0.0f, 0.0f});
+    b3d_clear();
+    b3d_reset();
+
+    /* Render a triangle - should work in ortho mode */
+    bool result = b3d_triangle(
+        &(b3d_tri_t) {
+            {{-0.5f, -0.5f, 0.0f}, {0.0f, 0.5f, 0.0f}, {0.5f, -0.5f, 0.0f}}},
+        0xff0000);
+    ASSERT(result == true);
+
+    /* Verify pixels were rendered */
+    const size_t pixel_count = (size_t) width * (size_t) height;
+    size_t non_zero = 0;
+    for (size_t i = 0; i < pixel_count; i++) {
+        if (pixels[i] != 0)
+            non_zero++;
+    }
+    ASSERT(non_zero > 0);
+
+    /* Test depth buffer works in ortho mode - render two triangles */
+    b3d_clear();
+    b3d_ortho(-1.0f, 1.0f, -1.0f, 1.0f, 0.1f, 100.0f);
+
+    /* Far triangle (green, z=0.5 from camera at z=-5 means 5.5 distance) */
+    b3d_triangle(&(b3d_tri_t) {{
+                     {-0.8f, -0.8f, 0.5f},
+                     {0.0f, 0.8f, 0.5f},
+                     {0.8f, -0.8f, 0.5f},
+                 }},
+                 0x00ff00);
+
+    /* Near triangle (red, z=0.0 from camera at z=-5 means 5.0 distance) */
+    b3d_triangle(&(b3d_tri_t) {{
+                     {-0.4f, -0.4f, 0.0f},
+                     {0.0f, 0.4f, 0.0f},
+                     {0.4f, -0.4f, 0.0f},
+                 }},
+                 0xff0000);
+
+    /* Center pixel should be red (near triangle wins) */
+    size_t center =
+        (size_t) (height / 2) * (size_t) width + (size_t) (width / 2);
+    ASSERT(pixels[center] == 0xff0000);
+
+    free(pixels);
+    free(depth);
+    return 1;
+}
+
 /* Test depth buffer functionality */
 TEST(api_depth_buffer)
 {
@@ -1222,6 +1312,7 @@ int main(void)
     RUN_TEST(api_render_ascii);
     RUN_TEST(api_triangle_return);
     RUN_TEST(api_degenerate_triangles);
+    RUN_TEST(api_ortho_projection);
     RUN_TEST(api_depth_buffer);
     SECTION_END();
 

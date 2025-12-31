@@ -199,6 +199,27 @@ where
     near ∈ ℝ
     far ∈ ℝ
 
+# Orthographic projection
+# Maps view volume [left,right] x [bottom,top] x [near,far] to NDC
+# x,y: [-1,1], z: [0,1] to match perspective depth convention
+mat_ortho(left, right, bottom, top, near, far) =
+    let rl = right - left in
+    let tb = top - bottom in
+    let fn = far - near in
+    [
+        [2 / rl,               0,                   0,          0],
+        [0,                    2 / tb,              0,          0],
+        [0,                    0,                   1 / fn,     0],
+        [-(right + left) / rl, -(top + bottom) / tb, -near / fn, 1]
+    ]
+where
+    left ∈ ℝ
+    right ∈ ℝ
+    bottom ∈ ℝ
+    top ∈ ℝ
+    near ∈ ℝ
+    far ∈ ℝ
+
 # ═══════════════════════════════════════════════════════════════
 # Matrix-Vector Multiplication: v' = v · M
 # ═══════════════════════════════════════════════════════════════

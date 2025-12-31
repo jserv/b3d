@@ -18,6 +18,7 @@ static b3d_mat_t b3d_model, b3d_view, b3d_proj;
 static b3d_vec_t b3d_camera;
 static b3d_camera_t b3d_camera_params; /* Full camera state for queries */
 static float b3d_fov_degrees;          /* Current FOV for queries */
+static bool b3d_ortho_mode = false;    /* Orthographic vs perspective */
 
 /* Matrix stack for push/pop operations */
 static b3d_mat_t b3d_matrix_stack[B3D_MATRIX_STACK_SIZE];
@@ -58,18 +59,29 @@ static float b3d_ambient = 0.2f;                           /* Default: 20% */
     ((B3D_NEAR_DISTANCE * B3D_FAR_DISTANCE) / \
      (B3D_FAR_DISTANCE - B3D_NEAR_DISTANCE))
 
-/* Precomputed depth constants in scalar format (initialized on first use) */
+/* Precomputed depth constants in scalar format.
+ * Perspective mode: depth = offset - w_inv * scale (standard formula)
+ * Orthographic mode: depth = z_ndc directly (offset=0, scale=-1)
+ */
 static b3d_scalar_t b3d_depth_offset_fp = 0;
 static b3d_scalar_t b3d_depth_scale_fp = 0;
-static bool b3d_depth_constants_valid = false;
+
+static inline void b3d_update_depth_constants(bool ortho)
+{
+    if (ortho) {
+        /* Orthographic: d = 0 - z_ndc * (-1) = z_ndc */
+        b3d_depth_offset_fp = 0;
+        b3d_depth_scale_fp = B3D_FLOAT_TO_FP(-1.0f);
+    } else {
+        /* Perspective: d = offset - (1/w) * scale */
+        b3d_depth_offset_fp = B3D_FLOAT_TO_FP((float) B3D_DEPTH_OFFSET);
+        b3d_depth_scale_fp = B3D_FLOAT_TO_FP((float) B3D_DEPTH_SCALE);
+    }
+}
 
 static inline void b3d_init_depth_constants(void)
 {
-    if (b3d_depth_constants_valid)
-        return;
-    b3d_depth_offset_fp = B3D_FLOAT_TO_FP((float) B3D_DEPTH_OFFSET);
-    b3d_depth_scale_fp = B3D_FLOAT_TO_FP((float) B3D_DEPTH_SCALE);
-    b3d_depth_constants_valid = true;
+    b3d_update_depth_constants(b3d_ortho_mode);
 }
 
 /* Cached screen-space clipping planes (updated when resolution changes) */
@@ -520,20 +532,30 @@ bool b3d_triangle(const b3d_tri_t *tri, uint32_t c)
             fabsf(t.p[2].w) < B3D_EPSILON)
             continue;
 
-        /* Save 1/w before perspective divide for perspective-correct depth.
-         * After projection, w = z_view. We store 1/w in z component so it
-         * interpolates correctly during screen-space clipping.
+        /* Depth value to interpolate in screen space.
+         * Perspective: 1/w for perspective-correct interpolation
+         * Orthographic: z_ndc directly (w=1, no perspective correction needed)
          */
-        float w_inv0 = 1.0f / t.p[0].w;
-        float w_inv1 = 1.0f / t.p[1].w;
-        float w_inv2 = 1.0f / t.p[2].w;
+        float depth0, depth1, depth2;
+        if (b3d_ortho_mode) {
+            /* In ortho, z is already normalized depth [0,1] from projection */
+            depth0 = t.p[0].z;
+            depth1 = t.p[1].z;
+            depth2 = t.p[2].z;
+        } else {
+            /* In perspective, w = z_view; store 1/w for correct interpolation
+             */
+            depth0 = 1.0f / t.p[0].w;
+            depth1 = 1.0f / t.p[1].w;
+            depth2 = 1.0f / t.p[2].w;
+        }
 
         PERSPECTIVE_DIV(t);
 
-        /* Store 1/w in z for perspective-correct depth interpolation */
-        t.p[0].z = w_inv0;
-        t.p[1].z = w_inv1;
-        t.p[2].z = w_inv2;
+        /* Store depth value in z for screen-space clipping interpolation */
+        t.p[0].z = depth0;
+        t.p[1].z = depth1;
+        t.p[2].z = depth2;
 
         float xs = b3d_width * 0.5f;
         float ys = b3d_height * 0.5f;
@@ -627,6 +649,37 @@ void b3d_set_fov(float fov_in_degrees)
     b3d_fov_degrees = fov_in_degrees;
     b3d_proj = b3d_mat_proj(fov_in_degrees, b3d_height / (float) b3d_width,
                             B3D_NEAR_DISTANCE, B3D_FAR_DISTANCE);
+
+    /* Switch to perspective mode if currently orthographic */
+    if (b3d_ortho_mode) {
+        b3d_ortho_mode = false;
+        b3d_update_depth_constants(false);
+    }
+}
+
+void b3d_ortho(float left,
+               float right,
+               float bottom,
+               float top,
+               float near,
+               float far)
+{
+    /* Validate parameters */
+    if (!isfinite(left) || !isfinite(right) || !isfinite(bottom) ||
+        !isfinite(top) || !isfinite(near) || !isfinite(far))
+        return;
+    if (fabsf(right - left) < B3D_EPSILON ||
+        fabsf(top - bottom) < B3D_EPSILON || fabsf(far - near) < B3D_EPSILON)
+        return;
+
+    b3d_proj = b3d_mat_ortho(left, right, bottom, top, near, far);
+    b3d_ortho_mode = true;
+    b3d_update_depth_constants(true);
+}
+
+bool b3d_is_ortho(void)
+{
+    return b3d_ortho_mode;
 }
 
 void b3d_set_camera(const b3d_camera_t *cam)
@@ -703,6 +756,7 @@ bool b3d_init(uint32_t *pixel_buffer,
     b3d_matrix_stack_top = 0;
     b3d_model_view_dirty = true;
     b3d_fov_degrees = fov;
+    b3d_ortho_mode = false; /* Start in perspective mode */
     b3d_init_depth_constants();
     b3d_update_screen_planes();
     b3d_clear();

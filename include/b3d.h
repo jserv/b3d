@@ -159,8 +159,34 @@ void b3d_look_at(float x, float y, float z);
 
 /* Set field of view (in DEGREES)
  * @fov_in_degrees: field of view angle in degrees
+ *
+ * Also switches to perspective projection if in orthographic mode.
  */
 void b3d_set_fov(float fov_in_degrees);
+
+/* Set orthographic projection.
+ * @left:   left clipping plane x-coordinate
+ * @right:  right clipping plane x-coordinate
+ * @bottom: bottom clipping plane y-coordinate
+ * @top:    top clipping plane y-coordinate
+ * @near:   near clipping plane z-coordinate
+ * @far:    far clipping plane z-coordinate
+ *
+ * Maps the view volume [left,right] x [bottom,top] x [near,far] to NDC.
+ * Parallel lines stay parallel (no foreshortening). Essential for CAD,
+ * 2D games, UI rendering.
+ */
+void b3d_ortho(float left,
+               float right,
+               float bottom,
+               float top,
+               float near,
+               float far);
+
+/* Check if orthographic projection is active.
+ * Returns true if using orthographic projection, false for perspective.
+ */
+bool b3d_is_ortho(void);
 
 /* Get current camera parameters
  * @out: output camera parameters (position and orientation)
